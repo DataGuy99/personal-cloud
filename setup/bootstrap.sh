@@ -11,6 +11,7 @@
 # ============================================================================
 
 set -euo pipefail
+export PATH="/usr/sbin:/usr/local/sbin:$PATH"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[✓]${NC} $1"; }
@@ -150,7 +151,7 @@ fi
 # ============================================================================
 if ! done_step "06-dirs"; then
   step "6/16 — Service User & Directories"
-  id -u copyparty &>/dev/null || useradd -r -s /usr/sbin/nologin -m -d /var/lib/copyparty copyparty
+  id -u copyparty &>/dev/null || /usr/sbin/useradd -r -s /usr/sbin/nologin -m -d /var/lib/copyparty copyparty
   mkdir -p /storage/pool/{movies,tv,music,photos,memes,docs}
   mkdir -p /incoming/{movies,tv,music,photos,memes,docs,unknown,anonymous}
   mkdir -p /incoming/.archive /incoming/.quarantine
