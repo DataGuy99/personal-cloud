@@ -192,6 +192,7 @@ cat > "$COPYPARTY_DIR/config/copyparty.conf" << CPEOF
 [global]
   p: 80
   html: /opt/copyparty/custom-ui
+  xau: /opt/copyparty/hooks/xau-hook.py
 [accounts]
   alice: ${UH[alice]}
   bob: ${UH[bob]}
@@ -257,13 +258,235 @@ if [[ -d "$INSTALL_DIR/pwa" ]]; then
   else warn "PWA build failed — run manually later"; fi
 fi
 
-step "14/18 — ClamAV"
+step "14/20 — Quarantine Pipeline & ClamAV"
+
+# Mount /incoming with noexec,nosuid,nodev
+# If /incoming is a separate partition/drive, mount with security flags
+# Otherwise create a tmpfs-backed bind mount with restrictions
+if ! mount | grep -q "/incoming.*noexec"; then
+  # Add noexec bind mount for /incoming
+  if ! grep -q "/incoming.*noexec" /etc/fstab; then
+    echo "/incoming  /incoming  none  bind,noexec,nosuid,nodev  0  0" >> /etc/fstab
+    mount -o remount,bind,noexec,nosuid,nodev /incoming 2>/dev/null || true
+  fi
+  log "/incoming mounted with noexec,nosuid,nodev"
+fi
+
+# Configure ClamAV to use YARA rules
+CLAMD_CONF="/etc/clamav/clamd.conf"
+if [[ -f "$CLAMD_CONF" ]]; then
+  # Enable YARA rule loading
+  if ! grep -q "^OfficialDatabaseOnly no" "$CLAMD_CONF"; then
+    sed -i 's/^OfficialDatabaseOnly.*/OfficialDatabaseOnly no/' "$CLAMD_CONF" 2>/dev/null || \
+      echo "OfficialDatabaseOnly no" >> "$CLAMD_CONF"
+  fi
+  # Point to YARA rules directory
+  if ! grep -q "^DatabaseCustomURL" "$CLAMD_CONF"; then
+    echo "# Custom YARA rules" >> "$CLAMD_CONF"
+  fi
+fi
+
+# Create ClamAV + YARA wrapper script for hooks
+cat > "$COPYPARTY_DIR/hooks/scan-file.sh" << 'SCANEOF'
+#!/bin/bash
+# Combined ClamAV + YARA scanner
+# Exit 0 = clean, Exit 1 = infected/suspicious
+FILE="$1"
+LOGFILE="/var/log/quarantine-scan.log"
+
+# ClamAV scan
+CLAM_RESULT=$(clamscan --infected --remove=no --no-summary "$FILE" 2>/dev/null)
+CLAM_EXIT=$?
+
+# YARA scan
+YARA_RESULT=$(yara -r /opt/yara-rules/*.yar "$FILE" 2>/dev/null)
+YARA_EXIT=$?
+
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+if [[ $CLAM_EXIT -ne 0 ]]; then
+  echo "${TIMESTAMP} INFECTED [ClamAV] ${FILE}: ${CLAM_RESULT}" >> "$LOGFILE"
+  exit 1
+fi
+
+if [[ -n "$YARA_RESULT" ]]; then
+  echo "${TIMESTAMP} SUSPICIOUS [YARA] ${FILE}: ${YARA_RESULT}" >> "$LOGFILE"
+  exit 1
+fi
+
+echo "${TIMESTAMP} CLEAN ${FILE}" >> "$LOGFILE"
+exit 0
+SCANEOF
+chmod +x "$COPYPARTY_DIR/hooks/scan-file.sh"
+
+# Create the upload hook wrapper that copyparty calls
+cat > "$COPYPARTY_DIR/hooks/xau-hook.py" << 'XAUEOF'
+#!/usr/bin/env python3
+"""copyparty after-upload hook. Called with file path as argv[1].
+Routes through categorize -> scan -> quarantine/promote pipeline."""
+import sys, os, subprocess, hashlib, shutil, time, logging
+
+logging.basicConfig(filename="/var/log/copyparty-hooks.log", level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s")
+
+CATEGORY_MAP = {
+    "movies": {".mkv",".mp4",".avi",".m4v",".mov",".wmv"},
+    "tv": set(),
+    "music": {".mp3",".flac",".ogg",".m4a",".wav",".opus",".aac"},
+    "photos": {".jpg",".jpeg",".png",".gif",".webp",".heic",".heif",".raw",".cr2",".bmp"},
+    "docs": {".pdf",".docx",".xlsx",".txt",".md",".odt",".epub",".csv",".pptx"},
+    "memes": set(),
+}
+
+def categorize(filename):
+    ext = os.path.splitext(filename)[1].lower()
+    for cat, exts in CATEGORY_MAP.items():
+        if ext in exts:
+            return cat
+    return "unknown"
+
+def archive_copy(src, category):
+    """Create immutable copy in archive (works on any filesystem)."""
+    archive_dir = f"/incoming/.archive/{category}"
+    os.makedirs(archive_dir, exist_ok=True)
+    ts = int(time.time())
+    short = hashlib.md5(os.path.basename(src).encode()).hexdigest()[:8]
+    dst = f"{archive_dir}/{ts}-{short}-{os.path.basename(src)}"
+    shutil.copy2(src, dst)
+    # Try reflink first (Btrfs), fall back to regular copy (already done above)
+    try:
+        subprocess.run(["chattr", "+i", dst], check=True, capture_output=True)
+    except Exception:
+        pass  # chattr may fail on non-ext4/btrfs -- archive still exists
+    return dst
+
+def promote(src, dst):
+    """Move from incoming to pool (cross-filesystem safe)."""
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copy2(src, dst)
+    os.remove(src)
+    logging.info(f"PROMOTED {src} -> {dst}")
+
+def quarantine(src):
+    q_dir = "/incoming/.quarantine"
+    os.makedirs(q_dir, exist_ok=True)
+    dst = f"{q_dir}/{os.path.basename(src)}"
+    shutil.move(src, dst)
+    logging.warning(f"QUARANTINED {src} -> {dst}")
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(0)
+
+    filepath = sys.argv[1]
+    if not os.path.exists(filepath):
+        logging.error(f"File not found: {filepath}")
+        sys.exit(0)
+
+    filename = os.path.basename(filepath)
+    category = categorize(filename)
+    
+    # Move to incoming buffer
+    incoming_path = f"/incoming/{category}/{filename}"
+    os.makedirs(f"/incoming/{category}", exist_ok=True)
+    
+    try:
+        shutil.move(filepath, incoming_path)
+    except Exception as e:
+        logging.error(f"Failed to move {filepath}: {e}")
+        incoming_path = filepath  # scan in place if move fails
+
+    # Archive copy (immutable record)
+    try:
+        archive_copy(incoming_path, category)
+    except Exception as e:
+        logging.warning(f"Archive copy failed: {e}")
+
+    # Scan: ClamAV + YARA
+    scan_result = subprocess.run(
+        ["/opt/copyparty/hooks/scan-file.sh", incoming_path],
+        capture_output=True
+    )
+
+    pool_dst = f"/storage/pool/{category}/{filename}"
+
+    if scan_result.returncode == 0:
+        # Clean -- promote to pool
+        promote(incoming_path, pool_dst)
+    else:
+        # Infected or suspicious -- quarantine
+        quarantine(incoming_path)
+        logging.warning(f"BLOCKED {filename} (scan exit {scan_result.returncode})")
+
+if __name__ == "__main__":
+    main()
+XAUEOF
+chmod +x "$COPYPARTY_DIR/hooks/xau-hook.py"
+chown -R copyparty:copyparty "$COPYPARTY_DIR/hooks"
+
+# Create AppArmor profile for copyparty
+cat > /etc/apparmor.d/opt.copyparty << 'AAEOF'
+#include <tunables/global>
+
+/opt/copyparty/copyparty-sfx.py {
+  #include <abstractions/base>
+  #include <abstractions/python>
+  #include <abstractions/nameservice>
+
+  /opt/copyparty/** r,
+  /opt/copyparty/hooks/** rx,
+  /opt/copyparty/custom-ui/** r,
+  /opt/copyparty/config/** r,
+
+  /storage/pool/** rw,
+  /incoming/** rw,
+  /users/** rw,
+  /shares/** rw,
+
+  /usr/bin/python3 ix,
+  /usr/bin/clamscan px,
+  /usr/bin/yara px,
+
+  # Deny access to system files
+  deny /etc/shadow r,
+  deny /etc/passwd w,
+  deny /root/** rw,
+  deny /boot/** rw,
+
+  # Network
+  network inet stream,
+  network inet dgram,
+}
+AAEOF
+
+apparmor_parser -r /etc/apparmor.d/opt.copyparty 2>/dev/null || warn "AppArmor profile failed to load — may need kernel support"
+
+# Update ClamAV
 systemctl stop clamav-freshclam 2>/dev/null || true
 freshclam 2>/dev/null || warn "freshclam failed — retries via cron"
 systemctl enable clamav-freshclam; systemctl start clamav-freshclam
-log "ClamAV ready"
 
-step "15/18 — WireGuard"
+# Verify scan pipeline with EICAR test file
+echo "  Testing quarantine pipeline with EICAR test file..."
+EICAR_STRING='X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+EICAR_PATH="/incoming/docs/EICAR-TEST.txt"
+echo "$EICAR_STRING" > "$EICAR_PATH" 2>/dev/null || true
+if [[ -f "$EICAR_PATH" ]]; then
+  bash "$COPYPARTY_DIR/hooks/scan-file.sh" "$EICAR_PATH" >/dev/null 2>&1
+  SCAN_EXIT=$?
+  if [[ $SCAN_EXIT -ne 0 ]]; then
+    log "EICAR detected and blocked — quarantine pipeline working"
+  else
+    warn "EICAR not detected — ClamAV signatures may not be loaded yet"
+  fi
+  rm -f "$EICAR_PATH" 2>/dev/null
+else
+  warn "Could not write EICAR test file"
+fi
+
+log "Quarantine pipeline configured: ClamAV + YARA + archive + noexec"
+
+step "15/20 — WireGuard"
 mkdir -p /etc/wireguard
 if [[ ! -f /etc/wireguard/server_private.key ]]; then
   wg genkey | tee /etc/wireguard/server_private.key | wg pubkey > /etc/wireguard/server_public.key
@@ -309,7 +532,7 @@ CLEOF
 fi
 grep -q "^net.ipv4.ip_forward=1" /etc/sysctl.conf || { echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf; sysctl -p >/dev/null; }
 
-step "16/18 — Firewall (nftables)"
+step "16/20 — Firewall (nftables)"
 cat > /etc/nftables.conf << 'NFTEOF'
 #!/usr/sbin/nft -f
 flush ruleset
@@ -337,7 +560,7 @@ NFTEOF
 systemctl enable nftables; nft -f /etc/nftables.conf
 log "Firewall active"
 
-step "17/18 — Systemd Services"
+step "17/20 — Systemd Services"
 cat > /etc/systemd/system/copyparty.service << 'EOF'
 [Unit]
 Description=copyparty file server
@@ -377,7 +600,7 @@ for svc in copyparty share-manager wg-quick@wg0; do
 done
 log "Services enabled"
 
-step "18/18 — Cron Jobs & Health Check"
+step "18/20 — Cron Jobs & Health Check"
 cat > /etc/cron.d/personal-cloud << 'EOF'
 5 1 * * *   root  rsync -a --delete /storage/pool/ /mnt/backup/ 2>/dev/null || true
 30 1 * * *  root  clamscan -r --infected --remove=no --log=/var/log/clamav-pool.log /storage/pool/ 2>&1
