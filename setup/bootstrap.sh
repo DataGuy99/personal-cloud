@@ -63,12 +63,12 @@ if ! done_step "02-packages"; then
   apt update && apt upgrade -y
   apt install -y git curl wget jq unzip python3 python3-pip python3-venv python3-flask \
     smartmontools nvme-cli mergerfs btrfs-progs wireguard wireguard-tools qrencode \
-    clamav clamav-daemon clamav-freshclam yara nftables apparmor apparmor-utils \
-    fail2ban unattended-upgrades apt-listchanges sudo htop tmux rsync lsof \
+    clamav clamav-daemon clamav-freshclam yara nftables iptables apparmor apparmor-utils \
+    fail2ban unattended-upgrades apt-listchanges sudo htop tmux rsync lsof pciutils \
     --no-install-recommends
   if ! command -v node &>/dev/null; then
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt install -y nodejs
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - 2>/dev/null || true
+    apt install -y nodejs || { apt install -y nodejs npm 2>/dev/null || warn "Node.js install failed — PWA build will skip"; }
   fi
   log "All packages installed"
   mark_step "02-packages"
@@ -82,8 +82,12 @@ fi
 if ! done_step "03-jellyfin"; then
   step "3/16 — Jellyfin"
   if ! command -v jellyfin &>/dev/null; then
-    curl -fsSL https://repo.jellyfin.org/install-debuntu.sh | bash
-    log "Jellyfin installed"
+    if curl -fsSL https://repo.jellyfin.org/install-debuntu.sh | bash; then
+      log "Jellyfin installed"
+    else
+      warn "Jellyfin auto-install failed — may need manual install for Debian 13"
+      warn "See https://jellyfin.org/docs/general/installation/linux"
+    fi
   else
     log "Jellyfin already present"
   fi
@@ -216,6 +220,7 @@ if ! done_step "09-copyparty-install"; then
   cp "$INSTALL_DIR/hooks/"*.py "$COPYPARTY_DIR/hooks/" 2>/dev/null || true
   cp "$INSTALL_DIR/hooks/"*.yar "$COPYPARTY_DIR/hooks/" 2>/dev/null || true
   cp "$INSTALL_DIR/share-manager/schema.sql" "$COPYPARTY_DIR/hooks/" 2>/dev/null || true
+  cp "$INSTALL_DIR/share-manager/share-manager.py" "$COPYPARTY_DIR/hooks/" 2>/dev/null || true
   mkdir -p /opt/yara-rules; cp "$COPYPARTY_DIR/hooks/"*.yar /opt/yara-rules/ 2>/dev/null || true
   log "copyparty ${CPVER} + hooks deployed"
   mark_step "09-copyparty-install"
