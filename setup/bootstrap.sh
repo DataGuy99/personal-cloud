@@ -410,13 +410,31 @@ def main():
 
     pool_dst = f"/storage/pool/{category}/{filename}"
 
-    if scan_result.returncode == 0:
-        # Clean -- promote to pool
-        promote(incoming_path, pool_dst)
-    else:
-        # Infected or suspicious -- quarantine
+    if scan_result.returncode != 0:
+        # ClamAV or YARA flagged it -- quarantine immediately
         quarantine(incoming_path)
         logging.warning(f"BLOCKED {filename} (scan exit {scan_result.returncode})")
+        return
+
+    # ClamAV + YARA clean -- check VirusTotal for known malware hashes
+    vt_result = {"positives": -1}
+    try:
+        sys.path.insert(0, "/opt/copyparty/hooks")
+        from virustotal import virustotal_check
+        vt_result = virustotal_check(incoming_path)
+    except Exception as e:
+        logging.warning(f"VT check failed: {e}")
+
+    if vt_result.get("positives", 0) > 0:
+        quarantine(incoming_path)
+        logging.warning(f"BLOCKED by VirusTotal: {filename} ({vt_result['positives']} detections)")
+    elif vt_result.get("positives") == -1:
+        # Unknown to VT (novel file) -- promote but log
+        promote(incoming_path, pool_dst)
+        logging.info(f"Promoted (VT unknown): {filename}")
+    else:
+        # VT clean
+        promote(incoming_path, pool_dst)
 
 if __name__ == "__main__":
     main()
