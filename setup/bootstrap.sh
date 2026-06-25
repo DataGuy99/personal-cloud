@@ -37,6 +37,24 @@ INSTALL_DIR="/opt/personal-cloud"
 COPYPARTY_DIR="/opt/copyparty"
 MAIN_USER="main"
 
+# --- Preflight: ensure all required packages (always runs, skips if present) ---
+REQUIRED_PKGS=(git curl wget jq unzip python3 python3-pip python3-venv python3-flask
+  smartmontools nvme-cli mergerfs btrfs-progs wireguard wireguard-tools qrencode
+  clamav clamav-daemon clamav-freshclam yara nftables iptables apparmor apparmor-utils
+  fail2ban unattended-upgrades apt-listchanges sudo htop tmux rsync lsof pciutils)
+MISSING=()
+for pkg in "${REQUIRED_PKGS[@]}"; do
+  dpkg -s "$pkg" &>/dev/null || MISSING+=("$pkg")
+done
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+  step "Preflight — Installing missing packages"
+  apt update -qq
+  apt install -y "${MISSING[@]}" --no-install-recommends
+  log "Installed: ${MISSING[*]}"
+else
+  log "Preflight — All packages present"
+fi
+
 # ============================================================================
 # 1/16 — Hostname & Timezone
 # ============================================================================
@@ -59,21 +77,16 @@ fi
 # 2/16 — System Update & Packages
 # ============================================================================
 if ! done_step "02-packages"; then
-  step "2/16 — System Update & Packages"
+  step "2/16 — System Upgrade & Node.js"
   apt update && apt upgrade -y
-  apt install -y git curl wget jq unzip python3 python3-pip python3-venv python3-flask \
-    smartmontools nvme-cli mergerfs btrfs-progs wireguard wireguard-tools qrencode \
-    clamav clamav-daemon clamav-freshclam yara nftables iptables apparmor apparmor-utils \
-    fail2ban unattended-upgrades apt-listchanges sudo htop tmux rsync lsof pciutils \
-    --no-install-recommends
   if ! command -v node &>/dev/null; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - 2>/dev/null || true
     apt install -y nodejs || { apt install -y nodejs npm 2>/dev/null || warn "Node.js install failed — PWA build will skip"; }
   fi
-  log "All packages installed"
+  log "System upgraded"
   mark_step "02-packages"
 else
-  log "2/16 — Packages (done)"
+  log "2/16 — System upgrade (done)"
 fi
 
 # ============================================================================
