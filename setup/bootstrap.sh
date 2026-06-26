@@ -170,11 +170,12 @@ if ! done_step "06-dirs"; then
   step "6/16 — Service User & Directories"
   id -u copyparty &>/dev/null || /usr/sbin/useradd -r -s /usr/sbin/nologin -m -d /var/lib/copyparty copyparty
   mkdir -p /storage/pool/{movies,tv,music,photos,memes,docs}
+  mkdir -p /staging
   mkdir -p /incoming/{movies,tv,music,photos,memes,docs,unknown,anonymous}
   mkdir -p /incoming/.archive /incoming/.quarantine
   mkdir -p /users/{alice,bob,sil}/private /shares /storage/drive{1,2,3,4,5,6,7,8}
   mkdir -p /shares/alice-bob-work /shares/alice-sil-baking
-  chown -R copyparty:copyparty /storage/pool /incoming /users /shares
+  chown -R copyparty:copyparty /storage/pool /incoming /users /shares /staging
   # Pre-create log files the copyparty user needs to write to
   for logf in /var/log/share-manager.log /var/log/copyparty-hooks.log /var/log/quarantine-scan.log; do
     touch "$logf"; chown copyparty:copyparty "$logf"
@@ -254,7 +255,7 @@ if ! done_step "10-copyparty-config"; then
   echo "  Set passwords for copyparty users. Blank to skip."
   echo "  (Stored in config file, chmod 600, root-only, behind firewall)"
   declare -A UH
-  for U in alice bob sil guest; do
+  for U in admin alice bob sil guest; do
     ask "Password for '${U}': " PW
     if [[ -n "${PW:-}" ]]; then
       UH[$U]="$PW"
@@ -269,6 +270,7 @@ if ! done_step "10-copyparty-config"; then
   e2dsa
   e2ts
 [accounts]
+  admin: ${UH[admin]}
   alice: ${UH[alice]}
   bob: ${UH[bob]}
   sil: ${UH[sil]}
@@ -311,6 +313,14 @@ if ! done_step "10-copyparty-config"; then
   /storage/pool/photos
   accs:
     r: *
+[/staging]
+  /staging
+  accs:
+    rwmda: admin
+    w: alice
+    w: bob
+    w: sil
+    w: guest
 [/drop]
   /incoming/anonymous
   accs:
@@ -629,7 +639,7 @@ User=copyparty
 Group=copyparty
 WorkingDirectory=/opt/copyparty
 EnvironmentFile=/opt/copyparty/config/secrets.env
-ExecStart=/usr/bin/python3 /opt/copyparty/copyparty-sfx.py -c /opt/copyparty/config/copyparty.conf --xau f,j,/opt/copyparty/hooks/xau-hook.py
+ExecStart=/usr/bin/python3 /opt/copyparty/copyparty-sfx.py -c /opt/copyparty/config/copyparty.conf --xbu j,c1,/opt/copyparty/hooks/xbu-stage.py
 Restart=on-failure
 RestartSec=5
 [Install]
@@ -651,9 +661,24 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+  cat > /etc/systemd/system/scanner-worker.service << 'EOF'
+[Unit]
+Description=Quarantine Scanner Worker
+After=network.target copyparty.service
+[Service]
+Type=simple
+User=copyparty
+Group=copyparty
+WorkingDirectory=/opt/copyparty/hooks
+ExecStart=/usr/bin/python3 /opt/copyparty/hooks/scanner-worker.py
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+EOF
   command -v jellyfin &>/dev/null && usermod -aG copyparty jellyfin 2>/dev/null || true
   systemctl daemon-reload
-  for svc in copyparty share-manager wg-quick@wg0; do
+  for svc in copyparty share-manager scanner-worker wg-quick@wg0; do
     systemctl enable "$svc"; systemctl start "$svc" 2>/dev/null || warn "$svc failed — check journalctl"
   done
 
@@ -747,7 +772,7 @@ step "Health Check"
 echo "  NVMe:"; smartctl -a /dev/nvme0 2>/dev/null | grep -E "Percentage|Error|Critical" || warn "NVMe not at /dev/nvme0"
 echo "  HBA:"; lspci | grep -iE "LSI|SAS" 2>/dev/null || warn "No HBA detected — install riser + card"
 echo "  Services:"
-for s in copyparty share-manager wg-quick@wg0 clamav-freshclam jellyfin fail2ban nftables; do
+for s in copyparty share-manager scanner-worker wg-quick@wg0 clamav-freshclam jellyfin fail2ban nftables; do
   ST=$(systemctl is-active "$s" 2>/dev/null || echo "off")
   [[ "$ST" == "active" ]] && echo -e "    ${GREEN}●${NC} $s" || echo -e "    ${RED}○${NC} $s"
 done
