@@ -173,7 +173,12 @@ if ! done_step "06-dirs"; then
   mkdir -p /incoming/{movies,tv,music,photos,memes,docs,unknown,anonymous}
   mkdir -p /incoming/.archive /incoming/.quarantine
   mkdir -p /users/{alice,bob,sil}/private /shares /storage/drive{1,2,3,4,5,6,7,8}
+  mkdir -p /shares/alice-bob-work /shares/alice-sil-baking
   chown -R copyparty:copyparty /storage/pool /incoming /users /shares
+  # Pre-create log files the copyparty user needs to write to
+  for logf in /var/log/share-manager.log /var/log/copyparty-hooks.log /var/log/quarantine-scan.log; do
+    touch "$logf"; chown copyparty:copyparty "$logf"
+  done
   log "Directories created"
   mark_step "06-dirs"
 else
@@ -247,21 +252,22 @@ fi
 if ! done_step "10-copyparty-config"; then
   step "10/16 — copyparty Config & Passwords"
   echo "  Set passwords for copyparty users. Blank to skip."
+  echo "  (Stored in config file, chmod 600, root-only, behind firewall)"
   declare -A UH
   for U in alice bob sil guest; do
     ask "Password for '${U}': " PW
     if [[ -n "${PW:-}" ]]; then
-      UH[$U]=$(python3 "$COPYPARTY_DIR/copyparty-sfx.py" -hp "$PW" 2>/dev/null | tail -1)
+      UH[$U]="$PW"
       log "  $U: set"
     else
-      UH[$U]='$2b$12$PLACEHOLDER'; warn "  $U: skipped"
+      UH[$U]='CHANGEME'; warn "  $U: skipped (placeholder CHANGEME)"
     fi
   done
   cat > "$COPYPARTY_DIR/config/copyparty.conf" << CPEOF
 [global]
-  p: 80
-  html: /opt/copyparty/custom-ui
-  xau: /opt/copyparty/hooks/xau-hook.py
+  p: 3923
+  e2dsa
+  e2ts
 [accounts]
   alice: ${UH[alice]}
   bob: ${UH[bob]}
@@ -290,19 +296,19 @@ if ! done_step "10-copyparty-config"; then
     rwmd: alice
     rw: sil
 [/public/movies]
-  /pool/movies
+  /storage/pool/movies
   accs:
     r: *
 [/public/tv]
-  /pool/tv
+  /storage/pool/tv
   accs:
     r: *
 [/public/music]
-  /pool/music
+  /storage/pool/music
   accs:
     r: *
 [/public/photos]
-  /pool/photos
+  /storage/pool/photos
   accs:
     r: *
 [/drop]
@@ -573,6 +579,7 @@ table inet filter {
         ip6 nexthdr icmpv6 accept
         tcp dport 22 accept
         tcp dport 80 accept
+        tcp dport 3923 accept
         udp dport 51820 accept
         tcp dport 8096 accept
         log prefix "nft-drop: " drop
@@ -607,7 +614,7 @@ User=copyparty
 Group=copyparty
 WorkingDirectory=/opt/copyparty
 EnvironmentFile=/opt/copyparty/config/secrets.env
-ExecStart=/usr/bin/python3 /opt/copyparty/copyparty-sfx.py -c /opt/copyparty/config/copyparty.conf
+ExecStart=/usr/bin/python3 /opt/copyparty/copyparty-sfx.py -c /opt/copyparty/config/copyparty.conf --xau f,j,/opt/copyparty/hooks/xau-hook.py
 Restart=on-failure
 RestartSec=5
 [Install]
