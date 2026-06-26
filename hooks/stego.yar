@@ -1,3 +1,7 @@
+// BLOCK TIER — high-confidence malicious indicators.
+// A match here = hard quarantine. These are polyglot/stego attack signatures,
+// not things that occur in normal files.
+
 rule suspicious_jpg {
     strings:
         $jpg_header = { FF D8 FF }
@@ -13,15 +17,6 @@ rule suspicious_png_zip {
         $zip_marker = { 50 4B 03 04 }
     condition:
         $png_header at 0 and $zip_marker
-}
-
-rule pdf_javascript {
-    strings:
-        $pdf_header = "%PDF"
-        $js1 = "/JavaScript" ascii
-        $js2 = "/JS" ascii
-    condition:
-        $pdf_header at 0 and ($js1 or $js2)
 }
 
 rule oversized_image {
