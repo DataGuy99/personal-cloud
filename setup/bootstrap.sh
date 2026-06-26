@@ -391,7 +391,7 @@ SCANEOF
   cat > "$COPYPARTY_DIR/hooks/xau-hook.py" << 'XAUEOF'
 #!/usr/bin/env python3
 """copyparty after-upload hook — categorize -> scan -> quarantine/promote"""
-import sys, os, subprocess, hashlib, shutil, time, logging
+import sys, os, subprocess, hashlib, shutil, time, logging, json
 
 logging.basicConfig(filename="/var/log/copyparty-hooks.log", level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s")
@@ -434,31 +434,46 @@ def quarantine(src):
     logging.warning(f"QUARANTINED {src}")
 
 def main():
-    if len(sys.argv) < 2: sys.exit(0)
-    filepath = sys.argv[1]
-    if not os.path.exists(filepath): logging.error(f"Not found: {filepath}"); sys.exit(0)
-    filename = os.path.basename(filepath)
-    category = categorize(filename)
-    incoming_path = f"/incoming/{category}/{filename}"
-    os.makedirs(f"/incoming/{category}", exist_ok=True)
-    try: shutil.move(filepath, incoming_path)
-    except Exception as e: logging.error(f"Move failed: {e}"); incoming_path = filepath
-    try: archive_copy(incoming_path, category)
-    except Exception as e: logging.warning(f"Archive failed: {e}")
-    scan_result = subprocess.run(["/opt/copyparty/hooks/scan-file.sh", incoming_path], capture_output=True)
-    pool_dst = f"/storage/pool/{category}/{filename}"
-    if scan_result.returncode != 0:
-        quarantine(incoming_path); logging.warning(f"BLOCKED {filename}"); return
-    vt_result = {"positives": -1}
+    if len(sys.argv) < 2:
+        sys.exit(0)
+
+    # copyparty sends JSON (we pass the 'j' flag). Parse it.
+    raw = sys.argv[1]
     try:
-        sys.path.insert(0, "/opt/copyparty/hooks")
-        from virustotal import virustotal_check
-        vt_result = virustotal_check(incoming_path)
-    except Exception as e: logging.warning(f"VT check failed: {e}")
-    if vt_result.get("positives", 0) > 0:
-        quarantine(incoming_path)
-    else:
-        promote(incoming_path, pool_dst)
+        info = json.loads(raw)
+        filepath = info.get("ap")        # absolute path on disk
+        vpath = info.get("vp", "")        # virtual path (vault/bob/foo.pdf)
+        user = info.get("user", "?")
+        size = info.get("sz", 0)
+        ip = info.get("ip", "?")
+    except (json.JSONDecodeError, AttributeError):
+        # Fallback: treat argv[1] as a bare filepath
+        filepath = raw
+        vpath = filepath
+        user = ip = "?"
+        size = 0
+
+    if not filepath or not os.path.exists(filepath):
+        logging.error(f"File not found on disk: {filepath}")
+        sys.exit(0)
+
+    filename = os.path.basename(filepath)
+
+    # Scan the file IN PLACE — do not relocate the user's upload.
+    scan_result = subprocess.run(
+        ["/opt/copyparty/hooks/scan-file.sh", filepath],
+        capture_output=True
+    )
+
+    if scan_result.returncode != 0:
+        # Infected or suspicious — quarantine it OUT of the user's space
+        quarantine(filepath)
+        logging.warning(f"BLOCKED+QUARANTINED user={user} vp={vpath} ({size}b from {ip})")
+        sys.exit(0)
+
+    # Clean — leave it where the user put it, just log the audit trail
+    logging.info(f"CLEAN user={user} vp={vpath} ({size}b from {ip})")
+    sys.exit(0)
 
 if __name__ == "__main__": main()
 XAUEOF
