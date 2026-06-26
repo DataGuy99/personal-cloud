@@ -607,7 +607,7 @@ User=copyparty
 Group=copyparty
 WorkingDirectory=/opt/copyparty
 EnvironmentFile=/opt/copyparty/config/secrets.env
-ExecStart=/usr/bin/python3 /opt/copyparty/copyparty-sfx.py --cfg /opt/copyparty/config/copyparty.conf
+ExecStart=/usr/bin/python3 /opt/copyparty/copyparty-sfx.py -c /opt/copyparty/config/copyparty.conf
 Restart=on-failure
 RestartSec=5
 [Install]
