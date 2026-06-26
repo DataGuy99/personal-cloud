@@ -171,13 +171,16 @@ if ! done_step "06-dirs"; then
   id -u copyparty &>/dev/null || /usr/sbin/useradd -r -s /usr/sbin/nologin -m -d /var/lib/copyparty copyparty
   mkdir -p /storage/pool/{movies,tv,music,photos,memes,docs}
   mkdir -p /staging
+  mkdir -p /staging/vault/{alice,bob,sil}
+  mkdir -p /staging/shared/{work,baking}
+  mkdir -p /staging/public/{movies,tv,music,photos,unknown}
   mkdir -p /incoming/{movies,tv,music,photos,memes,docs,unknown,anonymous}
   mkdir -p /incoming/.archive /incoming/.quarantine
   mkdir -p /users/{alice,bob,sil}/private /shares /storage/drive{1,2,3,4,5,6,7,8}
   mkdir -p /shares/alice-bob-work /shares/alice-sil-baking
   chown -R copyparty:copyparty /storage/pool /incoming /users /shares /staging
   # Pre-create log files the copyparty user needs to write to
-  for logf in /var/log/share-manager.log /var/log/copyparty-hooks.log /var/log/quarantine-scan.log; do
+  for logf in /var/log/share-manager.log /var/log/copyparty-hooks.log /var/log/quarantine-scan.log /var/log/scanner-worker.log; do
     touch "$logf"; chown copyparty:copyparty "$logf"
   done
   log "Directories created"
@@ -275,28 +278,31 @@ if ! done_step "10-copyparty-config"; then
   bob: ${UH[bob]}
   sil: ${UH[sil]}
   guest: ${UH[guest]}
+
+# ── BROWSE volumes: real destinations. Users read/manage CLEARED files here.
+#    No upload here (w not granted) — uploads go through /up/* into staging.
 [/vault/alice]
   /users/alice/private
   accs:
-    rwmd: alice
+    rmd: alice
 [/vault/bob]
   /users/bob/private
   accs:
-    rwmd: bob
+    rmd: bob
 [/vault/sil]
   /users/sil/private
   accs:
-    rwmd: sil
+    rmd: sil
 [/shared/work]
   /shares/alice-bob-work
   accs:
-    rwmd: alice
-    rw: bob
+    rmd: alice
+    r: bob
 [/shared/baking]
   /shares/alice-sil-baking
   accs:
-    rwmd: alice
-    rw: sil
+    rmd: alice
+    r: sil
 [/public/movies]
   /storage/pool/movies
   accs:
@@ -313,18 +319,78 @@ if ! done_step "10-copyparty-config"; then
   /storage/pool/photos
   accs:
     r: *
+
+# ── UPLOAD volumes: staging-backed. Files land here, get scanned, then the
+#    scanner-worker moves cleared files to the matching BROWSE destination.
+#    Filesystem layout mirrors browse paths under /staging/<scope>/...
+[/up/vault/alice]
+  /staging/vault/alice
+  accs:
+    w: alice
+    rwmda: admin
+[/up/vault/bob]
+  /staging/vault/bob
+  accs:
+    w: bob
+    rwmda: admin
+[/up/vault/sil]
+  /staging/vault/sil
+  accs:
+    w: sil
+    rwmda: admin
+[/up/shared/work]
+  /staging/shared/work
+  accs:
+    w: alice
+    w: bob
+    rwmda: admin
+[/up/shared/baking]
+  /staging/shared/baking
+  accs:
+    w: alice
+    w: sil
+    rwmda: admin
+[/up/public/movies]
+  /staging/public/movies
+  accs:
+    w: alice
+    w: bob
+    w: sil
+    rwmda: admin
+[/up/public/tv]
+  /staging/public/tv
+  accs:
+    w: alice
+    w: bob
+    w: sil
+    rwmda: admin
+[/up/public/music]
+  /staging/public/music
+  accs:
+    w: alice
+    w: bob
+    w: sil
+    rwmda: admin
+[/up/public/photos]
+  /staging/public/photos
+  accs:
+    w: alice
+    w: bob
+    w: sil
+    rwmda: admin
+
+# ── STAGING admin view: full visibility into everything mid-flight (troubleshooting)
 [/staging]
   /staging
   accs:
     rwmda: admin
-    w: alice
-    w: bob
-    w: sil
-    w: guest
+
+# ── Anonymous drop: also staged
 [/drop]
-  /incoming/anonymous
+  /staging/public/unknown
   accs:
     w: *
+    rwmda: admin
 CPEOF
   if [[ ! -f "$COPYPARTY_DIR/config/secrets.env" ]]; then
     ask "VirusTotal API key (blank to skip): " VTK
@@ -639,7 +705,7 @@ User=copyparty
 Group=copyparty
 WorkingDirectory=/opt/copyparty
 EnvironmentFile=/opt/copyparty/config/secrets.env
-ExecStart=/usr/bin/python3 /opt/copyparty/copyparty-sfx.py -c /opt/copyparty/config/copyparty.conf --xbu j,c1,/opt/copyparty/hooks/xbu-stage.py
+ExecStart=/usr/bin/python3 /opt/copyparty/copyparty-sfx.py -c /opt/copyparty/config/copyparty.conf --xau f,j,/opt/copyparty/hooks/xau-register.py
 Restart=on-failure
 RestartSec=5
 [Install]
