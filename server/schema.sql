@@ -83,6 +83,7 @@ CREATE INDEX IF NOT EXISTS idx_metrics_user ON body_metrics(user_id, logged_at);
 CREATE TABLE IF NOT EXISTS work_sessions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL REFERENCES users(id),
+    group_id    INTEGER REFERENCES groups(id),   -- NULL = personal; set = work-org visible to managers
     started_at  INTEGER NOT NULL,
     ended_at    INTEGER,                   -- null = clocked in, still running
     hourly_rate REAL,                      -- optional; enables earnings insight
@@ -114,6 +115,7 @@ CREATE TABLE IF NOT EXISTS workout_sets (
 CREATE TABLE IF NOT EXISTS meals (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL REFERENCES users(id),
+    plan_id     INTEGER REFERENCES meal_plans(id), -- provenance: logged from a (group) plan
     eaten_at    INTEGER NOT NULL,
     name        TEXT,
     kcal        REAL,
@@ -125,6 +127,7 @@ CREATE TABLE IF NOT EXISTS meals (
 CREATE TABLE IF NOT EXISTS meal_plans (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL REFERENCES users(id),
+    group_id    INTEGER REFERENCES groups(id),   -- NULL = personal plan
     plan_date   TEXT NOT NULL,             -- YYYY-MM-DD
     meal_slot   TEXT,                      -- 'breakfast','lunch','dinner','snack'
     recipe      TEXT,
@@ -149,4 +152,33 @@ CREATE TABLE IF NOT EXISTS journal_entries (
     updated_at  INTEGER,
     title       TEXT,
     body        TEXT
+);
+
+-- ── GROUPS: the sharing primitive ─────────────────────────────────────────
+-- A group is any shared space: "Family" (meal prep), a work org (contract
+-- manager), a project. Content tables carry nullable group_id: NULL = personal,
+-- set = group-scoped (visible to members per role). Personal rows may
+-- REFERENCE group rows (provenance) without becoming group-visible.
+CREATE TABLE IF NOT EXISTS groups (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT UNIQUE NOT NULL,
+    kind        TEXT,                      -- 'family','work','project',...
+    created_by  INTEGER NOT NULL REFERENCES users(id),
+    created_at  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS group_members (
+    group_id    INTEGER NOT NULL REFERENCES groups(id),
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    role        TEXT CHECK(role IN ('owner','manager','member')) NOT NULL DEFAULT 'member',
+    joined_at   INTEGER NOT NULL,
+    PRIMARY KEY (group_id, user_id)
+);
+
+-- device API keys (alarm puck sleep sync, future sensors): header-token auth
+CREATE TABLE IF NOT EXISTS api_keys (
+    key         TEXT PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    label       TEXT,                      -- 'alarm-puck'
+    created_at  INTEGER NOT NULL,
+    revoked     INTEGER NOT NULL DEFAULT 0
 );

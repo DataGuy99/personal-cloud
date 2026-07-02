@@ -66,3 +66,11 @@ and asked to leave this note so it can be re-evaluated with more knowledge later
   YARA kept narrow (polyglot/appended-executable only).
 - **Jellyfin stays the streaming engine**; PWA Media tab links out. A custom
   in-PWA player ("stream dock") is a later project, not rebuilt now.
+## 2026-07-01 — Groups as the single sharing primitive
+Rather than per-app sharing features, one model: group-scoped rows +
+personal-row provenance references. Family meal linking, contract-manager
+work visibility, and shared dumps are all instances of it. Tested end-to-end
+(roles, membership gates, manager views, device-key ingestion) before push.
+External-app integration pattern: existing GitHub PWAs (meal-prep,
+workout-gen) swap their localStorage layer for these APIs to join the
+ecosystem; they can be served as static apps under the platform later.

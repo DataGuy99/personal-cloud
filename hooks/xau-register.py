@@ -56,6 +56,13 @@ def map_destination(ap):
         dest = f"/shares/{real}" + (f"/{sub}" if sub else "")
         return dest, "vault"
 
+    if scope_top == "group":
+        # group/<slug>/<sub...>/file -> /groups/<slug>/<sub...>  (members-only => vault authority)
+        slug = parts[1] if len(parts) > 1 else "unknown"
+        sub = "/".join(folder_parts[2:])
+        dest = f"/groups/{slug}" + (f"/{sub}" if sub else "")
+        return dest, "vault"
+
     if scope_top == "public":
         cat = parts[1] if len(parts) > 1 else "unknown"
         sub = "/".join(folder_parts[2:])

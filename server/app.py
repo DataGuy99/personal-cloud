@@ -23,6 +23,8 @@ import db
 from api import metrics as api_metrics
 from api import workhours as api_work
 from api import insights as api_insights
+from api import groups as api_groups
+from api import sleep as api_sleep
 
 logging.basicConfig(filename=os.environ.get("PC_LOG", "/var/log/personal-cloud-api.log"),
                     level=logging.INFO,
@@ -193,6 +195,8 @@ def pending_reject(qid):
 app.register_blueprint(api_metrics.bp)
 app.register_blueprint(api_work.bp)
 app.register_blueprint(api_insights.bp)
+app.register_blueprint(api_groups.bp)
+app.register_blueprint(api_sleep.bp)
 
 
 # ── PWA static serving ─────────────────────────────────────────────

@@ -32,6 +32,11 @@ def generate():
     users = conn.execute(
         "SELECT username, file_token, is_admin FROM users WHERE disabled=0 "
         "ORDER BY username").fetchall()
+    grps = conn.execute(
+        "SELECT gr.id, gr.name FROM groups gr").fetchall()
+    gmembers = {gr["id"]: [r["username"] for r in conn.execute(
+        "SELECT u.username FROM group_members gm JOIN users u ON u.id=gm.user_id "
+        "WHERE gm.group_id=? AND u.disabled=0", (gr["id"],)).fetchall()] for gr in grps}
     conn.close()
     if not users:
         raise SystemExit("no users in DB; run app.py --init-admin first")
@@ -64,6 +69,15 @@ def generate():
         out += [f"[/up/public/{cat}]", f"  /staging/public/{cat}", "  accs:"]
         out += [f"    w: {u['username']}" for u in users] + admin_lines() + [""]
 
+    # group shared spaces: members read/manage, uploads via staging twin
+    for gr in grps:
+        slug = gr["name"].lower().replace(" ", "-")
+        mem = gmembers.get(gr["id"], [])
+        out += [f"[/group/{slug}]", f"  /groups/{slug}", "  accs:"]
+        out += [f"    rmd: {m}" for m in mem] + admin_lines() + [""]
+        out += [f"[/up/group/{slug}]", f"  /staging/group/{slug}", "  accs:"]
+        out += [f"    w: {m}" for m in mem] + admin_lines() + [""]
+
     # admin staging window + anonymous drop
     out += ["[/staging]", "  /staging", "  accs:"] + admin_lines() + [""]
     out += ["[/drop]", "  /staging/public/unknown", "  accs:", "    w: *"] + admin_lines() + [""]
@@ -73,7 +87,12 @@ def generate():
 def ensure_dirs():
     conn = db.connect()
     users = conn.execute("SELECT username FROM users WHERE disabled=0").fetchall()
+    grps = conn.execute("SELECT name FROM groups").fetchall()
     conn.close()
+    for gr in grps:
+        slug = gr["name"].lower().replace(" ", "-")
+        os.makedirs(f"/groups/{slug}", exist_ok=True)
+        os.makedirs(f"/staging/group/{slug}", exist_ok=True)
     for u in users:
         for p in (f"/users/{u['username']}/private", f"/staging/vault/{u['username']}"):
             os.makedirs(p, exist_ok=True)

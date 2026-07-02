@@ -18,10 +18,17 @@ def clock_in():
     if running:
         conn.close()
         return jsonify({"error": "already clocked in"}), 409
+    gid = d.get("group_id")
+    if gid:
+        ok = conn.execute("SELECT 1 FROM group_members WHERE group_id=? AND user_id=?",
+                          (gid, g.user["id"])).fetchone()
+        if not ok:
+            conn.close()
+            return jsonify({"error": "not a member of that group"}), 403
     conn.execute(
-        "INSERT INTO work_sessions (user_id, started_at, hourly_rate, activity, note) "
-        "VALUES (?,?,?,?,?)",
-        (g.user["id"], int(time.time()), d.get("hourly_rate"),
+        "INSERT INTO work_sessions (user_id, group_id, started_at, hourly_rate, activity, note) "
+        "VALUES (?,?,?,?,?,?)",
+        (g.user["id"], gid, int(time.time()), d.get("hourly_rate"),
          d.get("activity"), d.get("note")))
     conn.commit()
     conn.close()
