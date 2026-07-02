@@ -1,18 +1,89 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#1a1a2e">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Personal Cloud</title>
-  <link rel="icon" type="image/png" href="/icon-192.png">
-  <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="manifest" href="/manifest.webmanifest">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#17212b">
+<title>CloudDome</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="app"></div>
-  <script type="module" src="/src/main.js"></script>
+<!-- LOGIN -->
+<div id="login-view" class="view">
+  <div class="login-card">
+    <div class="logo">☁️</div>
+    <h1>CloudDome</h1>
+    <input id="login-user" placeholder="username" autocomplete="username">
+    <input id="login-pass" type="password" placeholder="password" autocomplete="current-password">
+    <button id="login-btn" class="btn-primary">Sign in</button>
+    <div id="login-err" class="err"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app-view" class="view hidden">
+  <header id="topbar">
+    <span id="view-title">Files</span>
+    <span id="whoami"></span>
+  </header>
+
+  <main id="content">
+    <!-- FILES -->
+    <section id="tab-files" class="tab">
+      <div id="crumbs"></div>
+      <div id="filelist"></div>
+      <label class="fab">
+        ⬆<input type="file" id="upload-input" multiple hidden>
+      </label>
+    </section>
+
+    <!-- PENDING -->
+    <section id="tab-pending" class="tab hidden">
+      <div id="pendinglist"></div>
+    </section>
+
+    <!-- MEDIA -->
+    <section id="tab-media" class="tab hidden">
+      <div class="card">
+        <h3>🎬 Jellyfin</h3>
+        <p>Movies, TV and music stream through Jellyfin.</p>
+        <a id="jellyfin-link" class="btn-primary" target="_blank">Open Jellyfin</a>
+      </div>
+    </section>
+
+    <!-- LIFE (ecosystem) -->
+    <section id="tab-life" class="tab hidden">
+      <div class="card" id="insight-card">
+        <h3>Today</h3>
+        <div id="insight-body">loading…</div>
+      </div>
+      <div class="card">
+        <h3>Body metrics</h3>
+        <div class="row"><input id="m-weight" type="number" step="0.1" placeholder="weight kg">
+        <input id="m-height" type="number" placeholder="height cm"></div>
+        <div class="row"><input id="m-age" type="number" placeholder="age">
+        <select id="m-sex"><option value="">sex</option><option value="m">m</option><option value="f">f</option></select></div>
+        <button id="m-save" class="btn-primary">Log metrics</button>
+      </div>
+      <div class="card">
+        <h3>Work</h3>
+        <div class="row"><input id="w-rate" type="number" step="0.5" placeholder="$/hr (optional)">
+        <select id="w-activity"><option value="desk">desk</option><option value="standing">standing</option>
+        <option value="driving">driving</option><option value="manual">manual</option>
+        <option value="construction">construction</option></select></div>
+        <button id="w-toggle" class="btn-primary">Clock in</button>
+      </div>
+    </section>
+  </main>
+
+  <nav id="tabbar">
+    <button data-tab="files" class="active">📁<span>Files</span></button>
+    <button data-tab="pending">🛡️<span>Pending</span><em id="pending-badge" class="badge hidden"></em></button>
+    <button data-tab="media">🎬<span>Media</span></button>
+    <button data-tab="life">📊<span>Life</span></button>
+  </nav>
+</div>
+<script src="app.js"></script>
 </body>
 </html>

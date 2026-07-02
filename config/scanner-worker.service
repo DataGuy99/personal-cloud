@@ -1,0 +1,12 @@
+[Unit]
+Description=Quarantine Scanner Worker
+After=network.target copyparty.service
+[Service]
+Type=simple
+User=copyparty
+Group=copyparty
+ExecStart=/usr/bin/python3 /opt/personal-cloud/server/workers/scanner.py
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

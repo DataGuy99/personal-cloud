@@ -180,7 +180,7 @@ if ! done_step "06-dirs"; then
   mkdir -p /shares/alice-bob-work /shares/alice-sil-baking
   chown -R copyparty:copyparty /storage/pool /incoming /users /shares /staging
   # Pre-create log files the copyparty user needs to write to
-  for logf in /var/log/share-manager.log /var/log/copyparty-hooks.log /var/log/quarantine-scan.log /var/log/scanner-worker.log; do
+  for logf in /var/log/personal-cloud-api.log /var/log/copyparty-hooks.log /var/log/quarantine-scan.log /var/log/scanner-worker.log; do
     touch "$logf"; chown copyparty:copyparty "$logf"
   done
   log "Directories created"
@@ -241,8 +241,8 @@ if ! done_step "09-copyparty-install"; then
   [[ ! -f "$COPYPARTY_DIR/copyparty-sfx.py" ]] && wget -q "https://github.com/9001/copyparty/releases/download/${CPVER}/copyparty-sfx.py" -O "$COPYPARTY_DIR/copyparty-sfx.py" && chmod +x "$COPYPARTY_DIR/copyparty-sfx.py"
   cp "$INSTALL_DIR/hooks/"*.py "$COPYPARTY_DIR/hooks/" 2>/dev/null || true
   cp "$INSTALL_DIR/hooks/"*.yar "$COPYPARTY_DIR/hooks/" 2>/dev/null || true
-  cp "$INSTALL_DIR/share-manager/schema.sql" "$COPYPARTY_DIR/hooks/" 2>/dev/null || true
-  cp "$INSTALL_DIR/share-manager/share-manager.py" "$COPYPARTY_DIR/hooks/" 2>/dev/null || true
+  
+  
   mkdir -p /opt/yara-rules; cp "$COPYPARTY_DIR/hooks/"*.yar /opt/yara-rules/ 2>/dev/null || true
   log "copyparty ${CPVER} + hooks deployed"
   mark_step "09-copyparty-install"
@@ -251,171 +251,43 @@ else
 fi
 
 # ============================================================================
-# 10/16 — copyparty Config & Passwords
+# 10/16 — Platform Identity & copyparty Config (generated from users table)
 # ============================================================================
 if ! done_step "10-copyparty-config"; then
-  step "10/16 — copyparty Config & Passwords"
-  echo "  Set passwords for copyparty users. Blank to skip."
-  echo "  (Stored in config file, chmod 600, root-only, behind firewall)"
-  declare -A UH
-  for U in admin alice bob sil guest; do
-    ask "Password for '${U}': " PW
-    if [[ -n "${PW:-}" ]]; then
-      UH[$U]="$PW"
-      log "  $U: set"
-    else
-      UH[$U]='CHANGEME'; warn "  $U: skipped (placeholder CHANGEME)"
-    fi
-  done
-  cat > "$COPYPARTY_DIR/config/copyparty.conf" << CPEOF
-[global]
-  p: 3923
-  e2dsa
-  e2ts
-[accounts]
-  admin: ${UH[admin]}
-  alice: ${UH[alice]}
-  bob: ${UH[bob]}
-  sil: ${UH[sil]}
-  guest: ${UH[guest]}
-
-# ── BROWSE volumes: real destinations. Users read/manage CLEARED files here.
-#    No upload here (w not granted) — uploads go through /up/* into staging.
-[/vault/alice]
-  /users/alice/private
-  accs:
-    rmd: alice
-[/vault/bob]
-  /users/bob/private
-  accs:
-    rmd: bob
-[/vault/sil]
-  /users/sil/private
-  accs:
-    rmd: sil
-[/shared/work]
-  /shares/alice-bob-work
-  accs:
-    rmd: alice
-    r: bob
-[/shared/baking]
-  /shares/alice-sil-baking
-  accs:
-    rmd: alice
-    r: sil
-[/public/movies]
-  /storage/pool/movies
-  accs:
-    r: *
-[/public/tv]
-  /storage/pool/tv
-  accs:
-    r: *
-[/public/music]
-  /storage/pool/music
-  accs:
-    r: *
-[/public/photos]
-  /storage/pool/photos
-  accs:
-    r: *
-
-# ── UPLOAD volumes: staging-backed. Files land here, get scanned, then the
-#    scanner-worker moves cleared files to the matching BROWSE destination.
-#    Filesystem layout mirrors browse paths under /staging/<scope>/...
-[/up/vault/alice]
-  /staging/vault/alice
-  accs:
-    w: alice
-    rwmda: admin
-[/up/vault/bob]
-  /staging/vault/bob
-  accs:
-    w: bob
-    rwmda: admin
-[/up/vault/sil]
-  /staging/vault/sil
-  accs:
-    w: sil
-    rwmda: admin
-[/up/shared/work]
-  /staging/shared/work
-  accs:
-    w: alice
-    w: bob
-    rwmda: admin
-[/up/shared/baking]
-  /staging/shared/baking
-  accs:
-    w: alice
-    w: sil
-    rwmda: admin
-[/up/public/movies]
-  /staging/public/movies
-  accs:
-    w: alice
-    w: bob
-    w: sil
-    rwmda: admin
-[/up/public/tv]
-  /staging/public/tv
-  accs:
-    w: alice
-    w: bob
-    w: sil
-    rwmda: admin
-[/up/public/music]
-  /staging/public/music
-  accs:
-    w: alice
-    w: bob
-    w: sil
-    rwmda: admin
-[/up/public/photos]
-  /staging/public/photos
-  accs:
-    w: alice
-    w: bob
-    w: sil
-    rwmda: admin
-
-# ── STAGING admin view: full visibility into everything mid-flight (troubleshooting)
-[/staging]
-  /staging
-  accs:
-    rwmda: admin
-
-# ── Anonymous drop: also staged
-[/drop]
-  /staging/public/unknown
-  accs:
-    w: *
-    rwmda: admin
-CPEOF
-  if [[ ! -f "$COPYPARTY_DIR/config/secrets.env" ]]; then
-    ask "VirusTotal API key (blank to skip): " VTK
-    echo "VT_API_KEY=${VTK:-}" > "$COPYPARTY_DIR/config/secrets.env"
-    chmod 600 "$COPYPARTY_DIR/config/secrets.env"
+  step "10/16 — Platform Identity & copyparty Config"
+  # DB schema + admin account (identity source of truth)
+  python3 - << 'PYINIT'
+import sys
+sys.path.insert(0, "/opt/personal-cloud/server")
+import db
+db.init_db()
+print("schema initialized")
+PYINIT
+  if ! python3 -c "
+import sys; sys.path.insert(0,'/opt/personal-cloud/server'); import db
+sys.exit(0 if db.get_user('admin') else 1)"; then
+    ask "Set platform admin password: " APW
+    PC_ADMIN_PW="$APW" python3 /opt/personal-cloud/server/app.py --init-admin
+  else
+    log "admin user exists"
   fi
-  chown -R copyparty:copyparty "$COPYPARTY_DIR"
-  log "copyparty configured"
+  # generate copyparty.conf from the users table (accounts + volumes + staging)
+  python3 /opt/personal-cloud/server/sync_copyparty.py || warn "copyparty sync deferred (service not up yet)"
+  chown -R copyparty:copyparty /opt/copyparty /staging /users 2>/dev/null || true
+  log "identity + copyparty config generated"
+  warn "Add more users later via the PWA (admin) or: curl -X POST /api/users"
   mark_step "10-copyparty-config"
 else
-  log "10/16 — copyparty config (done)"
+  log "10/16 — Identity & config (done)"
 fi
 
 # ============================================================================
-# 11/16 — Build PWA
+# 11/16 — Deploy PWA (no build step — plain static files)
 # ============================================================================
 if ! done_step "11-pwa"; then
-  step "11/16 — Build PWA"
-  if [[ -d "$INSTALL_DIR/pwa" ]]; then
-    cd "$INSTALL_DIR/pwa" && npm install --silent 2>/dev/null
-    if npm run build --silent 2>/dev/null; then
-      rm -rf "$COPYPARTY_DIR/custom-ui/"*; cp -r dist/* "$COPYPARTY_DIR/custom-ui/"
-      chown -R copyparty:copyparty "$COPYPARTY_DIR/custom-ui"; log "PWA deployed"
-    else warn "PWA build failed — run manually later"; fi
-  fi
+  step "11/16 — Deploy PWA"
+  # PWA is served by personal-cloud-api directly from /opt/personal-cloud/pwa
+  [[ -d /opt/personal-cloud/pwa ]] && log "PWA in place (served on :5001)" || warn "PWA dir missing"
   mark_step "11-pwa"
 else
   log "11/16 — PWA (done)"
@@ -671,6 +543,7 @@ table inet filter {
         tcp dport 22 accept
         tcp dport 80 accept
         tcp dport 3923 accept
+        tcp dport 5001 accept
         udp dport 51820 accept
         tcp dport 8096 accept
         log prefix "nft-drop: " drop
@@ -695,57 +568,16 @@ fi
 # ============================================================================
 if ! done_step "15-services"; then
   step "15/16 — Systemd Services & Cron"
-  cat > /etc/systemd/system/copyparty.service << 'EOF'
-[Unit]
-Description=copyparty file server
-After=network.target
-[Service]
-Type=simple
-User=copyparty
-Group=copyparty
-WorkingDirectory=/opt/copyparty
-EnvironmentFile=/opt/copyparty/config/secrets.env
-ExecStart=/usr/bin/python3 /opt/copyparty/copyparty-sfx.py -c /opt/copyparty/config/copyparty.conf --xau f,j,/opt/copyparty/hooks/xau-register.py
-Restart=on-failure
-RestartSec=5
-[Install]
-WantedBy=multi-user.target
-EOF
-  cat > /etc/systemd/system/share-manager.service << 'EOF'
-[Unit]
-Description=Share Manager API
-After=network.target copyparty.service
-[Service]
-Type=simple
-User=copyparty
-Group=copyparty
-WorkingDirectory=/opt/copyparty/hooks
-EnvironmentFile=/opt/copyparty/config/secrets.env
-ExecStart=/usr/bin/python3 /opt/copyparty/hooks/share-manager.py
-Restart=on-failure
-RestartSec=5
-[Install]
-WantedBy=multi-user.target
-EOF
-  cat > /etc/systemd/system/scanner-worker.service << 'EOF'
-[Unit]
-Description=Quarantine Scanner Worker
-After=network.target copyparty.service
-[Service]
-Type=simple
-User=copyparty
-Group=copyparty
-WorkingDirectory=/opt/copyparty/hooks
-ExecStart=/usr/bin/python3 /opt/copyparty/hooks/scanner-worker.py
-Restart=on-failure
-RestartSec=5
-[Install]
-WantedBy=multi-user.target
-EOF
+  # Units are version-controlled in config/ — copy, don't inline
+  cp "$INSTALL_DIR/config/copyparty.service"          /etc/systemd/system/
+  cp "$INSTALL_DIR/config/personal-cloud-api.service" /etc/systemd/system/
+  cp "$INSTALL_DIR/config/scanner-worker.service"     /etc/systemd/system/
+  rm -f /etc/systemd/system/share-manager.service   # absorbed into personal-cloud-api
   command -v jellyfin &>/dev/null && usermod -aG copyparty jellyfin 2>/dev/null || true
   systemctl daemon-reload
-  for svc in copyparty share-manager scanner-worker wg-quick@wg0; do
-    systemctl enable "$svc"; systemctl start "$svc" 2>/dev/null || warn "$svc failed — check journalctl"
+  systemctl disable share-manager 2>/dev/null || true
+  for svc in copyparty personal-cloud-api scanner-worker wg-quick@wg0; do
+    systemctl enable "$svc"; systemctl restart "$svc" 2>/dev/null || warn "$svc failed — check journalctl"
   done
 
   cat > /etc/cron.d/personal-cloud << 'EOF'
@@ -838,7 +670,7 @@ step "Health Check"
 echo "  NVMe:"; smartctl -a /dev/nvme0 2>/dev/null | grep -E "Percentage|Error|Critical" || warn "NVMe not at /dev/nvme0"
 echo "  HBA:"; lspci | grep -iE "LSI|SAS" 2>/dev/null || warn "No HBA detected — install riser + card"
 echo "  Services:"
-for s in copyparty share-manager scanner-worker wg-quick@wg0 clamav-freshclam jellyfin fail2ban nftables; do
+for s in copyparty personal-cloud-api scanner-worker wg-quick@wg0 clamav-freshclam jellyfin fail2ban nftables; do
   ST=$(systemctl is-active "$s" 2>/dev/null || echo "off")
   [[ "$ST" == "active" ]] && echo -e "    ${GREEN}●${NC} $s" || echo -e "    ${RED}○${NC} $s"
 done
@@ -848,7 +680,8 @@ echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}  Personal Cloud — Setup Complete${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
-echo "  copyparty:  http://${CURRENT_IP}:80"
+echo "  PWA:        http://${CURRENT_IP}:5001"
+  echo "  copyparty:  http://${CURRENT_IP}:3923"
 echo "  Jellyfin:   http://${CURRENT_IP}:8096"
 echo "  WG clients: /etc/wireguard/client{1,2,3}.conf"
 echo "  SSH:        ssh main@${CURRENT_IP}"

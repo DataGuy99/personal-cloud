@@ -1,0 +1,15 @@
+[Unit]
+Description=Personal Cloud API + PWA
+After=network.target copyparty.service
+[Service]
+Type=simple
+User=copyparty
+Group=copyparty
+WorkingDirectory=/opt/personal-cloud/server
+Environment=PC_DB=/opt/copyparty/shares.db
+Environment=PC_PWA=/opt/personal-cloud/pwa
+ExecStart=/usr/bin/python3 /opt/personal-cloud/server/app.py
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

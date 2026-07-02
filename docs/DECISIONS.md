@@ -51,3 +51,18 @@ Decision made by Claude on the reasoning above; user deferred ("genuinely don't 
 and asked to leave this note so it can be re-evaluated with more knowledge later.
 
 ---
+## 2026-07-01 — Platform restructure
+
+- **Single identity:** users table in SQLite is the authority; copyparty.conf
+  is generated (sync_copyparty.py). Users' copyparty password is a random
+  file_token, not their real password — real password only exists as a hash.
+- **share-manager absorbed** into personal-cloud-api (one Flask service:
+  PWA serving + identity + quarantine review + ecosystem).
+- **PWA rebuilt with no build step** (vanilla JS/CSS). The old Vite scaffold
+  was removed: a build chain added fragility with zero payoff at this scale,
+  and deploys are now just `git pull`. Revisit only if the PWA outgrows this.
+- **pdf_javascript YARA rule removed** — carpet-flagged every JS-bearing PDF
+  (i.e. most books/forms). ClamAV is the malware detector for all file types;
+  YARA kept narrow (polyglot/appended-executable only).
+- **Jellyfin stays the streaming engine**; PWA Media tab links out. A custom
+  in-PWA player ("stream dock") is a later project, not rebuilt now.
