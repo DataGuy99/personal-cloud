@@ -2,7 +2,7 @@
    copyparty (:3923) directly for files using the per-user file_token. */
 
 const CP = `${location.protocol}//${location.hostname}:3923`;
-let ME = null, cwd = null, MYGROUPS = [], curGroup = null, curEntry = null;
+let ME = null, cwd = null, MYGROUPS = [], curGroup = null, curEntry = null, curChat = null;
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
@@ -46,7 +46,7 @@ function enter() {
   $("#jellyfin-link").href = `${location.protocol}//${location.hostname}:8096`;
   if (ME.is_admin) $("#admin-card").classList.remove("hidden");
   cwd = `/vault/${ME.username}`;
-  loadFiles(); loadGroups(); refreshBadge(); setInterval(refreshBadge, 15000);
+  loadGroups().then(loadDump); refreshBadge(); setInterval(refreshBadge, 15000);
 }
 $("#logout").onclick = async () => { await api("/api/logout", { method: "POST" }); location.reload(); };
 
@@ -57,7 +57,8 @@ document.querySelectorAll("#tabbar button").forEach(btn => btn.onclick = () => {
   btn.classList.add("active");
   const tab = btn.dataset.tab;
   $(`#tab-${tab}`).classList.remove("hidden");
-  $("#view-title").textContent = { files: "Files", life: "Life", groups: "Groups", pending: "Pending", more: "More" }[tab];
+  $("#view-title").textContent = { dump: "Dump", files: "Files", life: "Life", groups: "Groups", pending: "Pending", more: "More" }[tab];
+  if (tab === "dump") loadDump();
   if (tab === "files") loadFiles();
   if (tab === "life") loadLife();
   if (tab === "groups") loadGroups();
@@ -353,6 +354,63 @@ $("#j-save").onclick = async () => {
 $("#j-delete").onclick = async () => {
   await api(`/api/journal/${curEntry.id}`, { method: "DELETE" });
   toast("deleted"); loadJournal();
+};
+
+/* ── dump (telegram feed) ─────────────────────────────────────── */
+function chatSlug(name) { return name.toLowerCase().replace(/ /g, "-"); }
+async function loadDump() {
+  const pills = [{ id: null, name: "💾 My dump" },
+    ...MYGROUPS.map(g => ({ id: g.id, name: g.name }))];
+  if (curChat === null || curChat === undefined) curChat = null;
+  $("#chatpills").innerHTML = pills.map(p =>
+    `<button data-gid="${p.id ?? ""}" class="${(p.id ?? null) === curChat ? "active" : ""}">${esc(p.name)}</button>`).join("");
+  document.querySelectorAll("#chatpills button").forEach(b =>
+    b.onclick = () => { curChat = b.dataset.gid ? +b.dataset.gid : null; loadDump(); });
+  const items = await api(`/api/dump${curChat ? "?group_id=" + curChat : ""}`);
+  $("#dumpfeed").innerHTML = items.map(bubbleHtml).join("") ||
+    `<div class="empty">nothing here — drop something 💾</div>`;
+  document.querySelectorAll(".bubble .del").forEach(b => b.onclick = async () => {
+    await api(`/api/dump/${b.dataset.id}`, { method: "DELETE" }); loadDump(); });
+  const f = $("#dumpfeed"); f.scrollTop = f.scrollHeight;
+}
+function bubbleHtml(m) {
+  const mine = m.username === ME.username;
+  const who = (!mine && curChat) ? `<span class="who">${esc(m.username)}</span>` : "";
+  let body;
+  if (m.kind === "link") body = `<a href="${esc(m.content)}" target="_blank">${esc(m.content)}</a>`;
+  else if (m.kind === "file") {
+    const url = `${CP}${encodeURI(m.file_path)}?pw=${ME.file_token}`;
+    body = /\.(jpe?g|png|gif|webp)$/i.test(m.file_path)
+      ? `<a href="${url}" target="_blank"><img src="${url}" onerror="this.outerHTML='📄 scanning…'"></a>
+         <div class="fchip"><span>${esc(m.content || "")}</span></div>`
+      : `<a href="${url}" target="_blank" class="fchip"><span class="fico">${icon(m.file_path)}</span>
+         <span>${esc(m.content || m.file_path.split("/").pop())}</span></a>`;
+  } else body = esc(m.content);
+  const del = mine ? `<button class="del" data-id="${m.id}">✕</button>` : "";
+  const t = new Date(m.created_at * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return `<div class="bubble ${mine ? "mine" : "theirs"}">${del}${who}${body}<span class="when">${t}</span></div>`;
+}
+$("#dump-send").onclick = sendDump;
+$("#dump-text").addEventListener("keydown", e => { if (e.key === "Enter") sendDump(); });
+async function sendDump() {
+  const content = $("#dump-text").value.trim();
+  if (!content) return;
+  await api("/api/dump", { method: "POST",
+    body: JSON.stringify({ content, group_id: curChat }) });
+  $("#dump-text").value = ""; loadDump();
+}
+$("#dump-attach").onchange = async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const grp = curChat ? MYGROUPS.find(g => g.id === curChat) : null;
+  const base = grp ? `/group/${chatSlug(grp.name)}/dump` : `/vault/${ME.username}/dump`;
+  toast(`uploading ${f.name}…`);
+  const r = await fetch(`${CP}/up${encodeURI(base)}/${encodeURIComponent(f.name)}`,
+    { method: "PUT", headers: { "PW": ME.file_token }, body: f });
+  if (!r.ok) { toast(`upload failed (${r.status})`); return; }
+  await api("/api/dump", { method: "POST", body: JSON.stringify({
+    content: f.name, file_path: `${base}/${f.name}`, group_id: curChat }) });
+  e.target.value = ""; toast("dropped — scanning"); loadDump(); refreshBadge();
 };
 
 /* ── sw ───────────────────────────────────────────────────────── */

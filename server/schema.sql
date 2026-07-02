@@ -182,3 +182,18 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at  INTEGER NOT NULL,
     revoked     INTEGER NOT NULL DEFAULT 0
 );
+
+-- ── DUMP: telegram-style feeds ─────────────────────────────────────────────
+-- Personal dump (group_id NULL) = "Saved Messages"; each group = a chat.
+-- kind: 'text' | 'link' | 'file' (file_path = copyparty vpath of attachment)
+CREATE TABLE IF NOT EXISTS dump_items (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),   -- author
+    group_id    INTEGER REFERENCES groups(id),           -- NULL = personal
+    created_at  INTEGER NOT NULL,
+    kind        TEXT CHECK(kind IN ('text','link','file')) NOT NULL,
+    content     TEXT,                                    -- text body or URL
+    file_path   TEXT                                     -- copyparty vpath for kind='file'
+);
+CREATE INDEX IF NOT EXISTS idx_dump_personal ON dump_items(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_dump_group    ON dump_items(group_id, created_at);

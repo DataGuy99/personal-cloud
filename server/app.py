@@ -28,6 +28,7 @@ from api import sleep as api_sleep
 from api import meals as api_meals
 from api import workouts as api_workouts
 from api import journal as api_journal
+from api import dump as api_dump
 
 logging.basicConfig(filename=os.environ.get("PC_LOG", "/var/log/personal-cloud-api.log"),
                     level=logging.INFO,
@@ -203,6 +204,7 @@ app.register_blueprint(api_sleep.bp)
 app.register_blueprint(api_meals.bp)
 app.register_blueprint(api_workouts.bp)
 app.register_blueprint(api_journal.bp)
+app.register_blueprint(api_dump.bp)
 
 
 # ── PWA static serving ─────────────────────────────────────────────

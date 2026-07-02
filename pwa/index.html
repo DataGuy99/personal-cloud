@@ -29,8 +29,19 @@
   </header>
 
   <main id="content">
+    <!-- DUMP -->
+    <section id="tab-dump" class="tab">
+      <div id="chatpills"></div>
+      <div id="dumpfeed"></div>
+      <div id="dumpbar">
+        <label class="attach">📎<input type="file" id="dump-attach" hidden></label>
+        <input id="dump-text" placeholder="drop a note, link…" autocomplete="off">
+        <button id="dump-send">➤</button>
+      </div>
+    </section>
+
     <!-- FILES -->
-    <section id="tab-files" class="tab">
+    <section id="tab-files" class="tab hidden">
       <div id="crumbs"></div>
       <div id="filelist"></div>
       <label class="fab">⬆<input type="file" id="upload-input" multiple hidden></label>
@@ -159,7 +170,8 @@
   </main>
 
   <nav id="tabbar">
-    <button data-tab="files" class="active">📁<span>Files</span></button>
+    <button data-tab="dump" class="active">💬<span>Dump</span></button>
+    <button data-tab="files">📁<span>Files</span></button>
     <button data-tab="life">📊<span>Life</span></button>
     <button data-tab="groups">👥<span>Groups</span></button>
     <button data-tab="pending">🛡️<span>Pending</span><em id="pending-badge" class="badge hidden"></em></button>
