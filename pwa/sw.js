@@ -1,5 +1,5 @@
 // shell-only cache; API + copyparty always hit network
-const CACHE = "clouddome-v1";
+const CACHE = "clouddome-v2";
 const SHELL = ["/", "/style.css", "/app.js", "/manifest.json"];
 self.addEventListener("install", e =>
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));

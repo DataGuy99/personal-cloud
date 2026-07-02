@@ -33,56 +33,152 @@
     <section id="tab-files" class="tab">
       <div id="crumbs"></div>
       <div id="filelist"></div>
-      <label class="fab">
-        ⬆<input type="file" id="upload-input" multiple hidden>
-      </label>
+      <label class="fab">⬆<input type="file" id="upload-input" multiple hidden></label>
     </section>
 
-    <!-- PENDING -->
-    <section id="tab-pending" class="tab hidden">
-      <div id="pendinglist"></div>
-    </section>
-
-    <!-- MEDIA -->
-    <section id="tab-media" class="tab hidden">
-      <div class="card">
-        <h3>🎬 Jellyfin</h3>
-        <p>Movies, TV and music stream through Jellyfin.</p>
-        <a id="jellyfin-link" class="btn-primary" target="_blank">Open Jellyfin</a>
-      </div>
-    </section>
-
-    <!-- LIFE (ecosystem) -->
+    <!-- LIFE -->
     <section id="tab-life" class="tab hidden">
       <div class="card" id="insight-card">
         <h3>Today</h3>
         <div id="insight-body">loading…</div>
       </div>
-      <div class="card">
-        <h3>Body metrics</h3>
-        <div class="row"><input id="m-weight" type="number" step="0.1" placeholder="weight kg">
-        <input id="m-height" type="number" placeholder="height cm"></div>
-        <div class="row"><input id="m-age" type="number" placeholder="age">
-        <select id="m-sex"><option value="">sex</option><option value="m">m</option><option value="f">f</option></select></div>
-        <button id="m-save" class="btn-primary">Log metrics</button>
+      <div class="seg" id="life-seg">
+        <button data-seg="meals" class="active">Meals</button>
+        <button data-seg="work">Work</button>
+        <button data-seg="fit">Fitness</button>
+        <button data-seg="sleep">Sleep</button>
       </div>
-      <div class="card">
-        <h3>Work</h3>
-        <div class="row"><input id="w-rate" type="number" step="0.5" placeholder="$/hr (optional)">
-        <select id="w-activity"><option value="desk">desk</option><option value="standing">standing</option>
-        <option value="driving">driving</option><option value="manual">manual</option>
-        <option value="construction">construction</option></select></div>
-        <button id="w-toggle" class="btn-primary">Clock in</button>
+
+      <div id="seg-meals" class="segpane">
+        <div class="card">
+          <h3>Log a meal</h3>
+          <input id="ml-name" placeholder="what did you eat">
+          <div class="row"><input id="ml-kcal" type="number" placeholder="kcal">
+            <input id="ml-protein" type="number" placeholder="protein g"></div>
+          <button id="ml-save" class="btn-primary">Log meal</button>
+        </div>
+        <div class="card">
+          <h3>Plans <span class="muted">(yours + your groups)</span></h3>
+          <div id="planlist" class="list"></div>
+          <details><summary class="muted">＋ new plan</summary>
+            <input id="pl-recipe" placeholder="recipe / meal">
+            <div class="row"><input id="pl-date" type="date">
+              <select id="pl-slot"><option>dinner</option><option>lunch</option><option>breakfast</option><option>snack</option></select></div>
+            <div class="row"><input id="pl-kcal" type="number" placeholder="target kcal">
+              <select id="pl-group"><option value="">personal</option></select></div>
+            <button id="pl-save" class="btn-primary">Create plan</button>
+          </details>
+        </div>
+        <div class="card"><h3>Recent meals</h3><div id="meallist" class="list"></div></div>
       </div>
+
+      <div id="seg-work" class="segpane hidden">
+        <div class="card">
+          <h3>Clock</h3>
+          <div class="row"><input id="w-rate" type="number" step="0.5" placeholder="$/hr (optional)">
+            <select id="w-activity"><option value="desk">desk</option><option value="standing">standing</option>
+            <option value="driving">driving</option><option value="manual">manual</option>
+            <option value="construction">construction</option></select></div>
+          <select id="w-group"><option value="">personal (no org)</option></select>
+          <input id="w-note" placeholder="note (visible to org managers)">
+          <button id="w-toggle" class="btn-primary">Clock in</button>
+        </div>
+        <div class="card"><h3>Recent sessions</h3><div id="worklist" class="list"></div></div>
+      </div>
+
+      <div id="seg-fit" class="segpane hidden">
+        <div class="card">
+          <h3>Body metrics</h3>
+          <div class="row"><input id="m-weight" type="number" step="0.1" placeholder="weight kg">
+            <input id="m-height" type="number" placeholder="height cm"></div>
+          <div class="row"><input id="m-age" type="number" placeholder="age">
+            <select id="m-sex"><option value="">sex</option><option value="m">m</option><option value="f">f</option></select></div>
+          <button id="m-save" class="btn-primary">Log metrics</button>
+        </div>
+        <div class="card">
+          <h3>Log workout <span class="muted">(kcal auto-estimated)</span></h3>
+          <div class="row">
+            <select id="wo-kind"><option>strength</option><option>cardio</option><option>running</option>
+              <option>walking</option><option>cycling</option><option>hiit</option><option>mobility</option><option>sports</option></select>
+            <input id="wo-min" type="number" placeholder="minutes"></div>
+          <button id="wo-save" class="btn-primary">Log workout</button>
+        </div>
+        <div class="card"><h3>Recent workouts</h3><div id="wolist" class="list"></div></div>
+      </div>
+
+      <div id="seg-sleep" class="segpane hidden">
+        <div class="card"><h3>Recent sleep</h3><div id="sleeplist" class="list"></div></div>
+        <div class="card">
+          <h3>Device sync</h3>
+          <p class="muted">Generate a key for the alarm puck. It POSTs to /api/sleep/ingest with header X-Api-Key.</p>
+          <button id="sleep-key" class="btn-primary">Generate device key</button>
+          <code id="sleep-key-out" class="keyout hidden"></code>
+        </div>
+      </div>
+    </section>
+
+    <!-- GROUPS -->
+    <section id="tab-groups" class="tab hidden">
+      <div id="group-list-view">
+        <div class="card">
+          <h3>New group</h3>
+          <div class="row"><input id="g-name" placeholder="name (e.g. Family)">
+            <select id="g-kind"><option>family</option><option>work</option><option>project</option></select></div>
+          <button id="g-create" class="btn-primary">Create</button>
+        </div>
+        <div id="grouplist"></div>
+      </div>
+      <div id="group-detail-view" class="hidden">
+        <a href="#" id="g-back" class="backlink">← groups</a>
+        <div class="card"><h3 id="gd-name"></h3><p class="muted" id="gd-role"></p>
+          <a id="gd-files" class="btn-ghost" href="#">📁 group files</a></div>
+        <div class="card" id="gd-members-card">
+          <h3>Members</h3>
+          <div class="row"><input id="gm-user" placeholder="username">
+            <select id="gm-role"><option>member</option><option>manager</option></select></div>
+          <button id="gm-add" class="btn-primary">Add member</button>
+        </div>
+        <div class="card"><h3>Work log</h3><div id="gd-work" class="list"></div></div>
+      </div>
+    </section>
+
+    <!-- PENDING -->
+    <section id="tab-pending" class="tab hidden"><div id="pendinglist"></div></section>
+
+    <!-- MORE -->
+    <section id="tab-more" class="tab hidden">
+      <div class="card mrow" id="open-journal"><h3>📓 Journal</h3><p class="muted">private, yours</p></div>
+      <div class="card mrow"><h3>🎬 Jellyfin</h3><a id="jellyfin-link" class="btn-primary" target="_blank">Open</a></div>
+      <div class="card hidden" id="admin-card">
+        <h3>⚙️ Admin — add user</h3>
+        <div class="row"><input id="au-name" placeholder="username"><input id="au-pass" type="password" placeholder="password"></div>
+        <button id="au-add" class="btn-primary">Create user</button>
+      </div>
+      <div class="card mrow" id="logout"><h3>🚪 Log out</h3></div>
     </section>
   </main>
 
   <nav id="tabbar">
     <button data-tab="files" class="active">📁<span>Files</span></button>
-    <button data-tab="pending">🛡️<span>Pending</span><em id="pending-badge" class="badge hidden"></em></button>
-    <button data-tab="media">🎬<span>Media</span></button>
     <button data-tab="life">📊<span>Life</span></button>
+    <button data-tab="groups">👥<span>Groups</span></button>
+    <button data-tab="pending">🛡️<span>Pending</span><em id="pending-badge" class="badge hidden"></em></button>
+    <button data-tab="more">☰<span>More</span></button>
   </nav>
+</div>
+
+<!-- JOURNAL (own skin) -->
+<div id="journal-view" class="view hidden journal-skin">
+  <header id="j-top"><a href="#" id="j-close">← back</a><span>Journal</span><a href="#" id="j-new">＋ write</a></header>
+  <main id="j-content">
+    <div id="j-list"></div>
+    <div id="j-editor" class="hidden">
+      <input id="j-title" placeholder="title">
+      <textarea id="j-body" placeholder="write…"></textarea>
+      <div class="row"><button id="j-save" class="btn-journal">Save</button>
+        <button id="j-delete" class="btn-journal danger hidden">Delete</button></div>
+    </div>
+  </main>
 </div>
 <script src="app.js"></script>
 </body>

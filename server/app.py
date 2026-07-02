@@ -25,6 +25,9 @@ from api import workhours as api_work
 from api import insights as api_insights
 from api import groups as api_groups
 from api import sleep as api_sleep
+from api import meals as api_meals
+from api import workouts as api_workouts
+from api import journal as api_journal
 
 logging.basicConfig(filename=os.environ.get("PC_LOG", "/var/log/personal-cloud-api.log"),
                     level=logging.INFO,
@@ -197,6 +200,9 @@ app.register_blueprint(api_work.bp)
 app.register_blueprint(api_insights.bp)
 app.register_blueprint(api_groups.bp)
 app.register_blueprint(api_sleep.bp)
+app.register_blueprint(api_meals.bp)
+app.register_blueprint(api_workouts.bp)
+app.register_blueprint(api_journal.bp)
 
 
 # ── PWA static serving ─────────────────────────────────────────────
