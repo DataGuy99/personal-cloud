@@ -96,10 +96,9 @@
           <div id="t-elapsed">00:00:00</div>
           <div id="t-sub" class="muted">not on the clock</div>
           <div class="row">
-            <select id="w-activity"><option value="desk">desk</option><option value="standing">standing</option>
-              <option value="driving">driving</option><option value="manual">manual</option>
-              <option value="construction">construction</option></select>
+            <div class="combo" id="w-activity-c"><input id="w-activity" placeholder="activity / role" autocomplete="off"><div class="combo-menu hidden"></div></div>
             <select id="w-group"><option value="">personal</option></select></div>
+          <label class="chk"><input type="checkbox" id="w-default"> always assign my hours to this org</label>
           <input id="w-note" placeholder="note (managers see this on org sessions)">
           <button id="w-toggle" class="btn-primary big">Start</button>
         </div>
