@@ -221,3 +221,12 @@ CREATE TABLE IF NOT EXISTS app_kv (
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, app, key)
 );
+
+-- KV snapshots: point-in-time backups of an app's per-user state
+CREATE TABLE IF NOT EXISTS kv_snapshots (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    app        TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    data       TEXT NOT NULL
+);

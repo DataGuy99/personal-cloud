@@ -43,6 +43,11 @@ for APP in ${APPS[@]}; do
     rm -rf "$OUT/$APP"; cp -r "$SRC/$APP/dist" "$OUT/$APP"
   else
     rm -rf "$OUT/$APP"; cp -r "$SRC/$APP" "$OUT/$APP"; rm -rf "$OUT/$APP/.git"
+    # GH-Pages prebuilt apps hardcode absolute /<repo>/ paths — rewrite to /apps/<repo>/
+    grep -rl "\"/$APP/" "$OUT/$APP" --include="*.html" --include="*.js" --include="*.json" 2>/dev/null | \
+      xargs -r sed -i "s|\"/$APP/|\"/apps/$APP/|g"
+    grep -rl "'/$APP/" "$OUT/$APP" --include="*.html" --include="*.js" 2>/dev/null | \
+      xargs -r sed -i "s|'/$APP/|'/apps/$APP/|g"
   fi
   inject_bridge "$OUT/$APP" "$APP"
 done
