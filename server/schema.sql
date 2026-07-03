@@ -209,3 +209,15 @@ CREATE TABLE IF NOT EXISTS user_services (
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, service)
 );
+
+-- ── APP KV: generic per-user storage for ported apps ─────────────────────
+-- Ported GitHub apps (workout-gen, meal-prep, ...) persist through this via
+-- the localStorage bridge; contract-manager's storage.js targets it directly.
+CREATE TABLE IF NOT EXISTS app_kv (
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    app        TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    value      TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, app, key)
+);
