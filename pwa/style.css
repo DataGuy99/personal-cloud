@@ -268,3 +268,11 @@ video.dmedia{max-height:340px;background:#000}
 .ctxmenu{position:fixed;background:var(--panel);border:1px solid #2b3a4a;border-radius:12px;z-index:95;box-shadow:0 14px 34px rgb(0 0 0/.6);padding:5px;min-width:180px}
 .ctx-opt{padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px}
 .ctx-opt:hover{background:var(--panel-2)}
+
+#photogrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px}
+#photogrid img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;cursor:pointer;background:var(--panel)}
+#lightbox{position:fixed;inset:0;background:rgb(0 0 0/.92);z-index:90;display:flex;align-items:center;justify-content:center;cursor:zoom-out}
+#lightbox img{max-width:96vw;max-height:96vh;border-radius:8px}
+.snaprow{display:flex;align-items:center;gap:10px;background:#0d0d0d;border-radius:10px;padding:10px 13px;margin-bottom:6px;font-size:13.5px}
+.snaprow .grow{flex:1}
+.snaprow .ssub{color:#6f6f6f;font-size:11.5px;display:block}

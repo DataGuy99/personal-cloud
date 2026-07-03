@@ -591,6 +591,7 @@ if ! done_step "15-services"; then
 30 2 * * *  root  btrfs scrub start /incoming 2>/dev/null || true
 0 3 * * *   root  find /incoming/.archive -mtime +90 -exec chattr -i {} \; -delete 2>/dev/null || true
 0 * * * *   copyparty  /usr/bin/python3 /opt/copyparty/hooks/share-expiry.py 2>/dev/null || true
+15 3 * * *  copyparty  /usr/bin/python3 /opt/personal-cloud/server/workers/snapshot_all.py >> /var/log/kv-snapshots.log 2>&1
 0 4 * * 0   root  smartctl -a /dev/nvme0 >> /var/log/smart-nvme.log 2>&1
 EOF
   log "Services enabled + cron jobs set"

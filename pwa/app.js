@@ -59,7 +59,8 @@ async function enter() {
 
 /* ── rail & routing ── */
 const CORE = [
-  { v:"dump", i:"💬", l:"Dump" }, { v:"files", i:"📁", l:"Files" }, { v:"dash", i:"📊", l:"Dash" }];
+  { v:"dump", i:"💬", l:"Dump" }, { v:"files", i:"📁", l:"Files" },
+  { v:"media", i:"🎞", l:"Media" }, { v:"dash", i:"📊", l:"Dash" }];
 const SVCMETA = { work:{i:"⏱",l:"Work"}, fitness:{i:"💪",l:"Fitness"}, meals:{i:"🍽",l:"Meals"},
   sleep:{i:"😴",l:"Sleep"}, journal:{i:"📓",l:"Journal"} };
 const SVCAPP = { fitness:"workout-gen", meals:"meal-prep" };   // paired → ported app
@@ -90,10 +91,10 @@ function show(v) {
   const el = $(`#view-${v}`); if (el) el.classList.remove("hidden");
   document.querySelectorAll(".ritem").forEach(b =>
     b.classList.toggle("active", b.dataset.view === v));
-  $("#view-title").textContent = ({ dump:"Dump", files:"Files", dash:"Dash", work:"Work",
-    fitness:"Fitness", meals:"Meals", sleep:"Sleep", pending:"Pending", settings:"Settings" })[v] || v;
+  $("#view-title").textContent = ({ dump:"Dump", files:"Files", media:"Media", dash:"Dash",
+    work:"Work", sleep:"Sleep", pending:"Pending", settings:"Settings" })[v] || v;
   $("#mob-back").classList.toggle("show", v !== "dump");
-  ({ dump:loadDump, files:loadFiles, dash:loadDash, work:loadWork,
+  ({ dump:loadDump, files:loadFiles, media:loadMedia, dash:loadDash, work:loadWork,
      sleep:loadSleep, pending:loadPending, settings:loadSettings })[v]?.();
 }
 $("#rail-toggle").onclick = () => $("#rail").classList.toggle("open");
@@ -518,6 +519,55 @@ $("#sleep-key").onclick = async () => {
   toast("key shown once — store it on the device");
 };
 
+/* ── media ── */
+let medMode = "mine";
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("#med-seg button"); if (!b) return;
+  document.querySelectorAll("#med-seg button").forEach(x => x.classList.remove("active"));
+  b.classList.add("active"); medMode = b.dataset.m; loadMedia();
+});
+async function loadMedia() {
+  $("#jf-link2").href = `${location.protocol}//${location.hostname}:8096`;
+  const stream = medMode === "stream";
+  $("#photogrid").classList.toggle("hidden", stream);
+  $("#streampane").classList.toggle("hidden", !stream);
+  if (stream) {
+    const out = [];
+    for (const cat of ["movies", "tv"]) {
+      const r = await fetch(`${CP}/public/${cat}/?ls`, { headers: { "PW": ME.file_token } });
+      if (!r.ok) continue;
+      const j = await r.json();
+      [...(j.dirs || []), ...(j.files || [])].forEach(f =>
+        out.push(`<div class="lrow"><div class="grow">${esc(decodeURIComponent(f.href.replace(/\/$/, "")))}
+          <span class="sub">${cat}</span></div></div>`));
+    }
+    $("#medlist").innerHTML = out.join("") ||
+      `<div class="empty">pool empty — drives + Jellyfin libraries pending</div>`;
+    return;
+  }
+  const base = medMode === "mine" ? `/vault/${ME.username}` : "/public/photos";
+  const imgs = await collectImages(base, 2);
+  $("#photogrid").innerHTML = imgs.slice(0, 200).map(u =>
+    `<img loading="lazy" src="${u}" data-u="${u}">`).join("") ||
+    `<div class="empty">no photos in ${medMode === "mine" ? "your vault" : "the family pool"} yet</div>`;
+  document.querySelectorAll("#photogrid img").forEach(im => im.onclick = () => {
+    $("#lb-img").src = im.dataset.u; $("#lightbox").classList.remove("hidden"); });
+}
+$("#lightbox").onclick = () => $("#lightbox").classList.add("hidden");
+async function collectImages(vp, depth) {
+  const r = await fetch(`${CP}${encodeURI(vp)}/?ls`, { headers: { "PW": ME.file_token } });
+  if (!r.ok) return [];
+  const j = await r.json();
+  let out = (j.files || []).filter(f => /\.(jpe?g|png|gif|webp)$/i.test(f.href))
+    .map(f => `${CP}${encodeURI(vp)}/${f.href}?pw=${ME.file_token}`);
+  if (depth > 0)
+    for (const d of (j.dirs || []).slice(0, 12)) {
+      if (d.href.startsWith(".")) continue;
+      out = out.concat(await collectImages(`${vp}/${d.href.replace(/\/$/, "")}`, depth - 1));
+    }
+  return out;
+}
+
 /* ── pending ── */
 async function refreshBadge() {
   try {
@@ -564,6 +614,25 @@ async function loadSettings() {
   document.querySelectorAll(".svcrow .rate").forEach(r => r.onchange = () => {
     const row = r.closest(".svcrow");
     saveSvc(row, row.querySelector(".sw").classList.contains("on")); });
+  const paired = SVC.filter(x => x.enabled).map(x => SVCAPP[x.service] || null).filter(Boolean);
+  const apps = [...new Set(["workout-gen", "meal-prep", "contract-manager", ...paired])];
+  const parts = [];
+  for (const a of apps) {
+    const snaps = await api(`/api/kv/${a}/snapshots`).catch(() => []);
+    parts.push(`<div class="snaprow" data-app="${a}"><div class="grow"><b>${a}</b>
+      <span class="ssub">${snaps.length ? snaps.length + " snapshots · latest " + fmtDT(snaps[0].created_at) : "no snapshots yet"}</span></div>
+      <button class="btn-rb snap-now">Snapshot</button>
+      ${snaps.length ? `<button class="btn-rb danger snap-restore" data-sid="${snaps[0].id}">Restore latest</button>` : ""}</div>`);
+  }
+  $("#snaplist").innerHTML = parts.join("");
+  document.querySelectorAll(".snap-now").forEach(b => b.onclick = async () => {
+    const a = b.closest(".snaprow").dataset.app;
+    const r = await api(`/api/kv/${a}/snapshot`, { method: "POST" });
+    toast(`${a}: ${r.keys} keys snapshotted`); loadSettings(); });
+  document.querySelectorAll(".snap-restore").forEach(b => b.onclick = async () => {
+    const a = b.closest(".snaprow").dataset.app;
+    const r = await api(`/api/kv/${a}/restore/${b.dataset.sid}`, { method: "POST" });
+    toast(`${a}: restored ${r.keys} keys`); });
   if (ME.is_admin) {
     $("#admin-rb").classList.remove("hidden");
     const users = await api("/api/users");

@@ -103,3 +103,45 @@ def restore(app, sid):
                      (g.user["id"], app, k, v, now))
     conn.commit(); conn.close()
     return jsonify({"ok": True, "keys": len(kv)})
+
+
+def _role(conn, gid, uid):
+    r = conn.execute("SELECT role FROM group_members WHERE group_id=? AND user_id=?",
+                     (gid, uid)).fetchone()
+    return r["role"] if r else None
+
+
+@bp.get("/g/<int:gid>/<app>")
+@require_auth
+def g_get(gid, app):
+    conn = db.connect()
+    if not _role(conn, gid, g.user["id"]):
+        conn.close(); return jsonify({"error": "not a member"}), 403
+    rows = conn.execute("SELECT key, value FROM group_kv WHERE group_id=? AND app=?",
+                        (gid, app)).fetchall()
+    conn.close()
+    return jsonify({r["key"]: r["value"] for r in rows})
+
+
+@bp.put("/g/<int:gid>/<app>")
+@require_auth
+def g_put(gid, app):
+    conn = db.connect()
+    if _role(conn, gid, g.user["id"]) not in ("owner", "manager"):
+        conn.close(); return jsonify({"error": "managers only"}), 403
+    d = request.get_json(silent=True) or {}
+    now = int(time.time())
+    if request.args.get("replace") == "1":
+        if d:
+            ph = ",".join("?" * len(d))
+            conn.execute(f"DELETE FROM group_kv WHERE group_id=? AND app=? AND key NOT IN ({ph})",
+                         (gid, app, *d.keys()))
+        else:
+            conn.execute("DELETE FROM group_kv WHERE group_id=? AND app=?", (gid, app))
+    for k, v in d.items():
+        conn.execute("INSERT INTO group_kv (group_id, app, key, value, updated_at, updated_by) "
+                     "VALUES (?,?,?,?,?,?) ON CONFLICT(group_id, app, key) DO UPDATE SET "
+                     "value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by",
+                     (gid, app, k, v if isinstance(v, str) else json.dumps(v), now, g.user["id"]))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True, "n": len(d)})

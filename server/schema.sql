@@ -230,3 +230,15 @@ CREATE TABLE IF NOT EXISTS kv_snapshots (
     created_at INTEGER NOT NULL,
     data       TEXT NOT NULL
 );
+
+-- group-scoped app KV: org-shared data (e.g. contract-manager contracts).
+-- members read; managers/owners write. Personal app_kv stays private.
+CREATE TABLE IF NOT EXISTS group_kv (
+    group_id   INTEGER NOT NULL REFERENCES groups(id),
+    app        TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    value      TEXT,
+    updated_at INTEGER NOT NULL,
+    updated_by INTEGER REFERENCES users(id),
+    PRIMARY KEY (group_id, app, key)
+);

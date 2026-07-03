@@ -131,6 +131,19 @@
           <code id="sleep-key-out" class="keyout hidden"></code></div>
       </section>
 
+      <!-- MEDIA -->
+      <section id="view-media" class="vw hidden">
+        <div class="seg" id="med-seg"><button data-m="mine" class="active">My photos</button>
+          <button data-m="family">Family</button><button data-m="stream">Movies & TV</button></div>
+        <div id="photogrid"></div>
+        <div id="streampane" class="hidden">
+          <div class="card"><h3>🎬 Jellyfin</h3><p class="muted">Full streaming UI w/ transcode.</p>
+            <a id="jf-link2" class="btn-primary" target="_blank">Open Jellyfin</a></div>
+          <div class="card"><h3>Library</h3><div id="medlist" class="list"></div></div>
+        </div>
+        <div id="lightbox" class="hidden"><img id="lb-img"></div>
+      </section>
+
       <!-- PENDING -->
       <section id="view-pending" class="vw hidden"><div id="pendinglist"></div></section>
 
@@ -149,6 +162,9 @@
             <button id="au-add" class="btn-rb">Create</button></div>
           <p class="rb-muted">New users must set their own password at first sign-in.</p>
           <div id="userlist"></div></div>
+        <div class="rb-card"><h3>BACKUPS</h3>
+          <p class="rb-muted">Server snapshots of each paired app's data. Nightly automatic; manual any time.</p>
+          <div id="snaplist"></div></div>
         <div class="rb-card"><h3>SESSION</h3>
           <button id="logout" class="btn-rb danger">Log out</button></div>
       </section>
