@@ -67,10 +67,17 @@ function buildRail() {
   const items = [...CORE,
     ...paired.map(s => ({ v:s, i:SVCMETA[s].i, l:SVCMETA[s].l })),
     { v:"pending", i:"🛡️", l:"Pending", badge:true }];
+  const APPS = [ { n:"workout-gen", i:"🏋️", l:"Workout Gen" },
+    { n:"contract-manager", i:"📋", l:"Contracts" }, { n:"meal-prep", i:"🥘", l:"Meal Prep" } ];
   $("#rail-items").innerHTML = items.map(it =>
     `<button class="ritem" data-view="${it.v}"><span class="ri">${it.i}</span>
-     <span class="rl">${it.l}</span>${it.badge ? '<em class="badge hidden" id="pending-badge"></em>' : ""}</button>`).join("");
-  document.querySelectorAll(".ritem").forEach(b => b.onclick = () => {
+     <span class="rl">${it.l}</span>${it.badge ? '<em class="badge hidden" id="pending-badge"></em>' : ""}</button>`).join("")
+    + `<div style="height:1px;background:#1e2a36;margin:6px 8px"></div>`
+    + APPS.map(a => `<button class="ritem" data-app="${a.n}"><span class="ri">${a.i}</span>
+       <span class="rl">${a.l}</span></button>`).join("");
+  document.querySelectorAll(".ritem[data-app]").forEach(b =>
+    b.onclick = () => { location.href = `/apps/${b.dataset.app}/`; });
+  document.querySelectorAll(".ritem:not([data-app])").forEach(b => b.onclick = () => {
     if (b.dataset.view === "journal") { openJournal(); railClose(); return; }
     show(b.dataset.view); railClose();
   });
