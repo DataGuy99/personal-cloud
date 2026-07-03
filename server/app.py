@@ -29,6 +29,7 @@ from api import meals as api_meals
 from api import workouts as api_workouts
 from api import journal as api_journal
 from api import dump as api_dump
+from api import services as api_services
 
 logging.basicConfig(filename=os.environ.get("PC_LOG", "/var/log/personal-cloud-api.log"),
                     level=logging.INFO,
@@ -74,7 +75,8 @@ def login():
         return jsonify({"error": "bad credentials"}), 401
     token = db.create_session(user["id"])
     resp = jsonify({"username": user["username"], "is_admin": bool(user["is_admin"]),
-                    "file_token": user["file_token"]})
+                    "file_token": user["file_token"],
+                    "must_change_pw": bool(user["must_change_pw"])})
     resp.set_cookie("pc_session", token, max_age=db.SESSION_TTL,
                     httponly=True, samesite="Lax")
     logging.info(f"login user={user['username']}")
@@ -94,7 +96,33 @@ def logout():
 @require_auth
 def me():
     return jsonify({"username": g.user["username"], "is_admin": bool(g.user["is_admin"]),
-                    "file_token": g.user["file_token"]})
+                    "file_token": g.user["file_token"],
+                    "must_change_pw": bool(g.user["must_change_pw"])})
+
+
+@app.post("/api/password")
+@require_auth
+def change_password():
+    d = request.get_json(silent=True) or {}
+    new = d.get("new_password", "")
+    if len(new) < 8:
+        return jsonify({"error": "min 8 characters"}), 400
+    # current password required unless a forced reset is pending
+    if not g.user["must_change_pw"]:
+        if not db.verify_pw(d.get("current_password", ""), g.user["pw_hash"]):
+            return jsonify({"error": "current password wrong"}), 403
+    db.set_password(g.user["id"], new)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/users")
+@require_admin
+def list_users():
+    conn = db.connect()
+    rows = conn.execute("SELECT id, username, is_admin, disabled, created_at, "
+                        "must_change_pw FROM users ORDER BY created_at").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
 
 
 @app.post("/api/users")
@@ -105,7 +133,7 @@ def add_user():
     if not uname or not pw:
         return jsonify({"error": "username and password required"}), 400
     try:
-        db.create_user(uname, pw, bool(data.get("is_admin")))
+        db.create_user(uname, pw, bool(data.get("is_admin")), must_change=True)
     except Exception as e:
         return jsonify({"error": str(e)}), 409
     # regenerate copyparty accounts + volumes, reload it
@@ -205,6 +233,7 @@ app.register_blueprint(api_meals.bp)
 app.register_blueprint(api_workouts.bp)
 app.register_blueprint(api_journal.bp)
 app.register_blueprint(api_dump.bp)
+app.register_blueprint(api_services.bp)
 
 
 # ── PWA static serving ─────────────────────────────────────────────

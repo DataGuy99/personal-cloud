@@ -21,55 +21,122 @@
   </div>
 </div>
 
+<!-- FORCED PASSWORD RESET -->
+<div id="pwreset-view" class="view hidden">
+  <div class="login-card">
+    <div class="logo">🔐</div>
+    <h1>Set your password</h1>
+    <p class="muted center">First sign-in — choose your own password (min 8 chars).</p>
+    <input id="pw-new" type="password" placeholder="new password">
+    <input id="pw-new2" type="password" placeholder="repeat it">
+    <button id="pw-set" class="btn-primary">Save & continue</button>
+    <div id="pw-err" class="err"></div>
+  </div>
+</div>
+
 <!-- APP -->
 <div id="app-view" class="view hidden">
-  <header id="topbar">
-    <span id="view-title">Files</span>
-    <span id="whoami"></span>
-  </header>
+  <nav id="rail">
+    <button id="rail-toggle" title="menu">☰</button>
+    <div id="rail-items"></div>
+    <button class="ritem" data-view="settings" title="settings"><span class="ri">⚙️</span><span class="rl">Settings</span></button>
+  </nav>
+  <div id="railveil"></div>
 
-  <main id="content">
-    <!-- DUMP -->
-    <section id="tab-dump" class="tab">
-      <div id="chatpills"></div>
-      <div id="dumpfeed"></div>
-      <div id="dumpbar">
-        <label class="attach">📎<input type="file" id="dump-attach" hidden></label>
-        <input id="dump-text" placeholder="drop a note, link…" autocomplete="off">
-        <button id="dump-send">➤</button>
-      </div>
-    </section>
+  <div id="main">
+    <header id="topbar">
+      <button id="mob-back" class="hidden">‹</button>
+      <button id="mob-menu">☰</button>
+      <span id="view-title">Dump</span>
+      <span id="whoami"></span>
+    </header>
 
-    <!-- FILES -->
-    <section id="tab-files" class="tab hidden">
-      <div id="crumbs"></div>
-      <div id="filelist"></div>
-      <label class="fab">⬆<input type="file" id="upload-input" multiple hidden></label>
-    </section>
+    <main id="content">
+      <!-- DUMP -->
+      <section id="view-dump" class="vw kulik">
+        <div id="chatpills"></div>
+        <div id="dumpfeed"></div>
+        <div id="dumpbar">
+          <label class="attach">📎<input type="file" id="dump-attach" hidden></label>
+          <input id="dump-text" placeholder="Type here…" autocomplete="off">
+          <button id="dump-send">➤</button>
+        </div>
+      </section>
 
-    <!-- LIFE -->
-    <section id="tab-life" class="tab hidden">
-      <div class="card" id="insight-card">
-        <h3>Today</h3>
-        <div id="insight-body">loading…</div>
-      </div>
-      <div class="seg" id="life-seg">
-        <button data-seg="meals" class="active">Meals</button>
-        <button data-seg="work">Work</button>
-        <button data-seg="fit">Fitness</button>
-        <button data-seg="sleep">Sleep</button>
-      </div>
+      <!-- FILES -->
+      <section id="view-files" class="vw hidden">
+        <div class="filehead"><div id="crumbs"></div><button id="search-open" title="search">🔍</button></div>
+        <div id="filelist"></div>
+        <label class="fab">⬆<input type="file" id="upload-input" multiple hidden></label>
+      </section>
 
-      <div id="seg-meals" class="segpane">
+      <!-- DASH -->
+      <section id="view-dash" class="vw hidden">
+        <div class="card" id="insight-card"><h3>Today</h3><div id="insight-body">loading…</div></div>
+        <div class="card"><h3>Groups</h3>
+          <div class="row"><input id="g-name" placeholder="new group (e.g. Family)">
+            <select id="g-kind"><option>family</option><option>work</option><option>project</option></select>
+            <button id="g-create" class="btn-primary slim">＋</button></div>
+          <div id="grouplist"></div></div>
+        <div id="group-detail" class="hidden">
+          <div class="card"><h3 id="gd-name"></h3><p class="muted" id="gd-role"></p>
+            <a id="gd-files" class="btn-ghost" href="#">📁 group files</a></div>
+          <div class="card" id="gd-members-card"><h3>Members</h3>
+            <div class="row"><input id="gm-user" placeholder="username">
+              <select id="gm-role"><option>member</option><option>manager</option></select>
+              <button id="gm-add" class="btn-primary slim">＋</button></div></div>
+          <div class="card"><h3>Work log</h3><div id="gd-work" class="list"></div></div>
+        </div>
+      </section>
+
+      <!-- WORK (InsightFlow-style) -->
+      <section id="view-work" class="vw hidden">
+        <div class="timer-card">
+          <div id="t-elapsed">00:00:00</div>
+          <div id="t-sub" class="muted">not on the clock</div>
+          <div class="row">
+            <select id="w-activity"><option value="desk">desk</option><option value="standing">standing</option>
+              <option value="driving">driving</option><option value="manual">manual</option>
+              <option value="construction">construction</option></select>
+            <select id="w-group"><option value="">personal</option></select></div>
+          <input id="w-note" placeholder="note (managers see this on org sessions)">
+          <button id="w-toggle" class="btn-primary big">Start</button>
+        </div>
         <div class="card">
-          <h3>Log a meal</h3>
+          <h3>Add past time</h3>
+          <div class="row"><input id="mw-date" type="date"><input id="mw-note" placeholder="note"></div>
+          <div class="row"><input id="mw-start" type="time"><input id="mw-end" type="time">
+            <input id="mw-break" type="number" placeholder="break min"></div>
+          <button id="mw-save" class="btn-primary">Add entry</button>
+        </div>
+        <div class="card"><h3>Sessions <span id="w-rate-label" class="muted"></span></h3>
+          <div id="worklist" class="list"></div></div>
+      </section>
+
+      <!-- FITNESS -->
+      <section id="view-fitness" class="vw hidden">
+        <div class="card"><h3>Body metrics</h3>
+          <div class="row"><input id="m-weight" type="number" step="0.1" placeholder="weight kg">
+            <input id="m-height" type="number" placeholder="height cm"></div>
+          <div class="row"><input id="m-age" type="number" placeholder="age">
+            <select id="m-sex"><option value="">sex</option><option value="m">m</option><option value="f">f</option></select></div>
+          <button id="m-save" class="btn-primary">Log metrics</button></div>
+        <div class="card"><h3>Log workout <span class="muted">(kcal auto-estimated)</span></h3>
+          <div class="row"><select id="wo-kind"><option>strength</option><option>cardio</option><option>running</option>
+            <option>walking</option><option>cycling</option><option>hiit</option><option>mobility</option><option>sports</option></select>
+            <input id="wo-min" type="number" placeholder="minutes"></div>
+          <button id="wo-save" class="btn-primary">Log workout</button></div>
+        <div class="card"><h3>Recent</h3><div id="wolist" class="list"></div></div>
+      </section>
+
+      <!-- MEALS -->
+      <section id="view-meals" class="vw hidden">
+        <div class="card"><h3>Log a meal</h3>
           <input id="ml-name" placeholder="what did you eat">
           <div class="row"><input id="ml-kcal" type="number" placeholder="kcal">
             <input id="ml-protein" type="number" placeholder="protein g"></div>
-          <button id="ml-save" class="btn-primary">Log meal</button>
-        </div>
-        <div class="card">
-          <h3>Plans <span class="muted">(yours + your groups)</span></h3>
+          <button id="ml-save" class="btn-primary">Log meal</button></div>
+        <div class="card"><h3>Plans <span class="muted">(yours + groups)</span></h3>
           <div id="planlist" class="list"></div>
           <details><summary class="muted">＋ new plan</summary>
             <input id="pl-recipe" placeholder="recipe / meal">
@@ -77,106 +144,53 @@
               <select id="pl-slot"><option>dinner</option><option>lunch</option><option>breakfast</option><option>snack</option></select></div>
             <div class="row"><input id="pl-kcal" type="number" placeholder="target kcal">
               <select id="pl-group"><option value="">personal</option></select></div>
-            <button id="pl-save" class="btn-primary">Create plan</button>
-          </details>
-        </div>
-        <div class="card"><h3>Recent meals</h3><div id="meallist" class="list"></div></div>
-      </div>
+            <button id="pl-save" class="btn-primary">Create plan</button></details></div>
+        <div class="card"><h3>Recent</h3><div id="meallist" class="list"></div></div>
+      </section>
 
-      <div id="seg-work" class="segpane hidden">
-        <div class="card">
-          <h3>Clock</h3>
-          <div class="row"><input id="w-rate" type="number" step="0.5" placeholder="$/hr (optional)">
-            <select id="w-activity"><option value="desk">desk</option><option value="standing">standing</option>
-            <option value="driving">driving</option><option value="manual">manual</option>
-            <option value="construction">construction</option></select></div>
-          <select id="w-group"><option value="">personal (no org)</option></select>
-          <input id="w-note" placeholder="note (visible to org managers)">
-          <button id="w-toggle" class="btn-primary">Clock in</button>
-        </div>
-        <div class="card"><h3>Recent sessions</h3><div id="worklist" class="list"></div></div>
-      </div>
-
-      <div id="seg-fit" class="segpane hidden">
-        <div class="card">
-          <h3>Body metrics</h3>
-          <div class="row"><input id="m-weight" type="number" step="0.1" placeholder="weight kg">
-            <input id="m-height" type="number" placeholder="height cm"></div>
-          <div class="row"><input id="m-age" type="number" placeholder="age">
-            <select id="m-sex"><option value="">sex</option><option value="m">m</option><option value="f">f</option></select></div>
-          <button id="m-save" class="btn-primary">Log metrics</button>
-        </div>
-        <div class="card">
-          <h3>Log workout <span class="muted">(kcal auto-estimated)</span></h3>
-          <div class="row">
-            <select id="wo-kind"><option>strength</option><option>cardio</option><option>running</option>
-              <option>walking</option><option>cycling</option><option>hiit</option><option>mobility</option><option>sports</option></select>
-            <input id="wo-min" type="number" placeholder="minutes"></div>
-          <button id="wo-save" class="btn-primary">Log workout</button>
-        </div>
-        <div class="card"><h3>Recent workouts</h3><div id="wolist" class="list"></div></div>
-      </div>
-
-      <div id="seg-sleep" class="segpane hidden">
+      <!-- SLEEP -->
+      <section id="view-sleep" class="vw hidden">
         <div class="card"><h3>Recent sleep</h3><div id="sleeplist" class="list"></div></div>
-        <div class="card">
-          <h3>Device sync</h3>
-          <p class="muted">Generate a key for the alarm puck. It POSTs to /api/sleep/ingest with header X-Api-Key.</p>
+        <div class="card"><h3>Device sync</h3>
+          <p class="muted">Key for the alarm puck → POST /api/sleep/ingest, header X-Api-Key.</p>
           <button id="sleep-key" class="btn-primary">Generate device key</button>
-          <code id="sleep-key-out" class="keyout hidden"></code>
-        </div>
-      </div>
-    </section>
+          <code id="sleep-key-out" class="keyout hidden"></code></div>
+      </section>
 
-    <!-- GROUPS -->
-    <section id="tab-groups" class="tab hidden">
-      <div id="group-list-view">
-        <div class="card">
-          <h3>New group</h3>
-          <div class="row"><input id="g-name" placeholder="name (e.g. Family)">
-            <select id="g-kind"><option>family</option><option>work</option><option>project</option></select></div>
-          <button id="g-create" class="btn-primary">Create</button>
-        </div>
-        <div id="grouplist"></div>
-      </div>
-      <div id="group-detail-view" class="hidden">
-        <a href="#" id="g-back" class="backlink">← groups</a>
-        <div class="card"><h3 id="gd-name"></h3><p class="muted" id="gd-role"></p>
-          <a id="gd-files" class="btn-ghost" href="#">📁 group files</a></div>
-        <div class="card" id="gd-members-card">
-          <h3>Members</h3>
-          <div class="row"><input id="gm-user" placeholder="username">
-            <select id="gm-role"><option>member</option><option>manager</option></select></div>
-          <button id="gm-add" class="btn-primary">Add member</button>
-        </div>
-        <div class="card"><h3>Work log</h3><div id="gd-work" class="list"></div></div>
-      </div>
-    </section>
+      <!-- PENDING -->
+      <section id="view-pending" class="vw hidden"><div id="pendinglist"></div></section>
 
-    <!-- PENDING -->
-    <section id="tab-pending" class="tab hidden"><div id="pendinglist"></div></section>
+      <!-- SETTINGS (red/black skin) -->
+      <section id="view-settings" class="vw hidden redblack">
+        <div class="rb-card"><h3>ACCOUNT</h3>
+          <input id="cp-cur" type="password" placeholder="current password">
+          <div class="row"><input id="cp-new" type="password" placeholder="new password">
+            <button id="cp-save" class="btn-rb">Change</button></div></div>
+        <div class="rb-card"><h3>SERVICES</h3>
+          <p class="rb-muted">Pair the modules you use. Unpaired services stay out of your rail and views.</p>
+          <div id="svc-list"></div></div>
+        <div class="rb-card hidden" id="admin-rb">
+          <h3>ADMIN</h3>
+          <div class="row"><input id="au-name" placeholder="username"><input id="au-pass" type="password" placeholder="temp password">
+            <button id="au-add" class="btn-rb">Create</button></div>
+          <p class="rb-muted">New users must set their own password at first sign-in.</p>
+          <div id="userlist"></div></div>
+        <div class="rb-card"><h3>SESSION</h3>
+          <button id="logout" class="btn-rb danger">Log out</button></div>
+      </section>
+    </main>
+  </div>
+</div>
 
-    <!-- MORE -->
-    <section id="tab-more" class="tab hidden">
-      <div class="card mrow" id="open-journal"><h3>📓 Journal</h3><p class="muted">private, yours</p></div>
-      <div class="card mrow"><h3>🎬 Jellyfin</h3><a id="jellyfin-link" class="btn-primary" target="_blank">Open</a></div>
-      <div class="card hidden" id="admin-card">
-        <h3>⚙️ Admin — add user</h3>
-        <div class="row"><input id="au-name" placeholder="username"><input id="au-pass" type="password" placeholder="password"></div>
-        <button id="au-add" class="btn-primary">Create user</button>
-      </div>
-      <div class="card mrow" id="logout"><h3>🚪 Log out</h3></div>
-    </section>
-  </main>
-
-  <nav id="tabbar">
-    <button data-tab="dump" class="active">💬<span>Dump</span></button>
-    <button data-tab="files">📁<span>Files</span></button>
-    <button data-tab="life">📊<span>Life</span></button>
-    <button data-tab="groups">👥<span>Groups</span></button>
-    <button data-tab="pending">🛡️<span>Pending</span><em id="pending-badge" class="badge hidden"></em></button>
-    <button data-tab="more">☰<span>More</span></button>
-  </nav>
+<!-- SEARCH OVERLAY (shoeciety) -->
+<div id="search-view" class="view hidden shoec">
+  <header><button id="search-close">✕</button><span class="brand">"CLOUDDOME"</span></header>
+  <div class="s-wrap">
+    <div class="s-input"><input id="search-q" placeholder="search the archive" autocomplete="off"><span>⌕</span></div>
+    <hr>
+    <div class="s-label">Results</div>
+    <div id="search-results"></div>
+  </div>
 </div>
 
 <!-- JOURNAL (own skin) -->

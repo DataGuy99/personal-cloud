@@ -18,6 +18,11 @@ def init_db():
         sql = f.read()
     conn = connect()
     conn.executescript(sql)
+    # migrations for columns added after first release
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN must_change_pw INTEGER NOT NULL DEFAULT 0")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -40,17 +45,26 @@ def verify_pw(password: str, stored: str) -> bool:
 
 
 # ── users ──────────────────────────────────────────────────────────
-def create_user(username: str, password: str, is_admin: bool = False):
+def create_user(username: str, password: str, is_admin: bool = False,
+                must_change: bool = False):
     conn = connect()
     try:
         conn.execute(
-            "INSERT INTO users (username, pw_hash, file_token, is_admin, created_at) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT INTO users (username, pw_hash, file_token, is_admin, created_at, must_change_pw) "
+            "VALUES (?,?,?,?,?,?)",
             (username, hash_pw(password), secrets.token_urlsafe(24),
-             1 if is_admin else 0, int(time.time())))
+             1 if is_admin else 0, int(time.time()), 1 if must_change else 0))
         conn.commit()
     finally:
         conn.close()
+
+
+def set_password(user_id: int, password: str):
+    conn = connect()
+    conn.execute("UPDATE users SET pw_hash=?, must_change_pw=0 WHERE id=?",
+                 (hash_pw(password), user_id))
+    conn.commit()
+    conn.close()
 
 
 def get_user(username: str):

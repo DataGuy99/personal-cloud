@@ -197,3 +197,15 @@ CREATE TABLE IF NOT EXISTS dump_items (
 );
 CREATE INDEX IF NOT EXISTS idx_dump_personal ON dump_items(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_dump_group    ON dump_items(group_id, created_at);
+
+-- ── SERVICE PAIRING ────────────────────────────────────────────────────────
+-- Per-user opt-in to ecosystem services; settings JSON holds per-service
+-- config (e.g. work: {"hourly_rate": 30}). UI renders only paired services.
+CREATE TABLE IF NOT EXISTS user_services (
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    service    TEXT NOT NULL,               -- 'work','fitness','meals','sleep','journal'
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    settings   TEXT NOT NULL DEFAULT '{}',  -- JSON
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, service)
+);
