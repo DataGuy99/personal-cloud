@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS dump_items (
     user_id     INTEGER NOT NULL REFERENCES users(id),   -- author
     group_id    INTEGER REFERENCES groups(id),           -- NULL = personal
     created_at  INTEGER NOT NULL,
-    kind        TEXT CHECK(kind IN ('text','link','file')) NOT NULL,
+    kind        TEXT CHECK(kind IN ('text','link','file','share')) NOT NULL,
     content     TEXT,                                    -- text body or URL
     file_path   TEXT                                     -- copyparty vpath for kind='file'
 );

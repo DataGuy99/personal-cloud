@@ -1,7 +1,7 @@
 /* CloudDome PWA v2 — rail navigation, service pairing, kulikéun dump */
 const CP = `${location.protocol}//${location.hostname}:3923`;
-let ME = null, cwd = null, MYGROUPS = [], SVC = [], curGroup = null, curEntry = null,
-    curChat = null, curView = "dump", tInterval = null;
+let ME = null, cwd = null, MYGROUPS = [], SVC = [], PEERS = [], curGroup = null,
+    curEntry = null, curChat = null, curPeer = null, curView = "dump", tInterval = null;
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
@@ -62,13 +62,13 @@ const CORE = [
   { v:"dump", i:"💬", l:"Dump" }, { v:"files", i:"📁", l:"Files" }, { v:"dash", i:"📊", l:"Dash" }];
 const SVCMETA = { work:{i:"⏱",l:"Work"}, fitness:{i:"💪",l:"Fitness"}, meals:{i:"🍽",l:"Meals"},
   sleep:{i:"😴",l:"Sleep"}, journal:{i:"📓",l:"Journal"} };
+const SVCAPP = { fitness:"workout-gen", meals:"meal-prep" };   // paired → ported app
 function buildRail() {
   const paired = SVC.filter(s => s.enabled).map(s => s.service);
   const items = [...CORE,
     ...paired.map(s => ({ v:s, i:SVCMETA[s].i, l:SVCMETA[s].l })),
     { v:"pending", i:"🛡️", l:"Pending", badge:true }];
-  const APPS = [ { n:"workout-gen", i:"🏋️", l:"Workout Gen" },
-    { n:"contract-manager", i:"📋", l:"Contracts" }, { n:"meal-prep", i:"🥘", l:"Meal Prep" } ];
+  const APPS = [ { n:"contract-manager", i:"📋", l:"Contracts" } ];
   $("#rail-items").innerHTML = items.map(it =>
     `<button class="ritem" data-view="${it.v}"><span class="ri">${it.i}</span>
      <span class="rl">${it.l}</span>${it.badge ? '<em class="badge hidden" id="pending-badge"></em>' : ""}</button>`).join("")
@@ -78,8 +78,10 @@ function buildRail() {
   document.querySelectorAll(".ritem[data-app]").forEach(b =>
     b.onclick = () => { location.href = `/apps/${b.dataset.app}/`; });
   document.querySelectorAll(".ritem:not([data-app])").forEach(b => b.onclick = () => {
-    if (b.dataset.view === "journal") { openJournal(); railClose(); return; }
-    show(b.dataset.view); railClose();
+    const v = b.dataset.view;
+    if (v === "journal") { openJournal(); railClose(); return; }
+    if (SVCAPP[v]) { location.href = `/apps/${SVCAPP[v]}/`; return; }
+    show(v); railClose();
   });
 }
 function show(v) {
@@ -91,8 +93,8 @@ function show(v) {
   $("#view-title").textContent = ({ dump:"Dump", files:"Files", dash:"Dash", work:"Work",
     fitness:"Fitness", meals:"Meals", sleep:"Sleep", pending:"Pending", settings:"Settings" })[v] || v;
   $("#mob-back").classList.toggle("show", v !== "dump");
-  ({ dump:loadDump, files:loadFiles, dash:loadDash, work:loadWork, fitness:loadFit,
-     meals:loadMeals, sleep:loadSleep, pending:loadPending, settings:loadSettings })[v]?.();
+  ({ dump:loadDump, files:loadFiles, dash:loadDash, work:loadWork,
+     sleep:loadSleep, pending:loadPending, settings:loadSettings })[v]?.();
 }
 $("#rail-toggle").onclick = () => $("#rail").classList.toggle("open");
 $("#mob-menu").onclick = () => { $("#rail").classList.add("open"); $("#railveil").classList.add("on"); };
@@ -104,21 +106,33 @@ function railClose() { if (matchMedia("(max-width:700px)").matches)
 /* ── dump ── */
 function chatSlug(n) { return n.toLowerCase().replace(/ /g, "-"); }
 async function loadDump() {
-  const pills = [{ id:null, name:"💾 My dump" }, ...MYGROUPS.map(g => ({ id:g.id, name:g.name }))];
+  PEERS = await api("/api/dump/peers").catch(() => PEERS);
+  const pills = [{ id:null, name:"💾 My dump" }, ...MYGROUPS.map(g => ({ id:g.id, name:g.name })),
+    ...PEERS.map(u => ({ peer:u, name:u }))];
   $("#chatpills").innerHTML = pills.map(p =>
-    `<button data-gid="${p.id ?? ""}" class="${(p.id ?? null) === curChat ? "active" : ""}">${esc(p.name)}</button>`).join("");
-  document.querySelectorAll("#chatpills button").forEach(b =>
-    b.onclick = () => { curChat = b.dataset.gid ? +b.dataset.gid : null; loadDump(); });
-  const items = await api(`/api/dump${curChat ? "?group_id=" + curChat : ""}`);
+    `<button ${p.peer ? `data-peer="${esc(p.peer)}" class="dm ${curPeer === p.peer ? "active" : ""}"`
+      : `data-gid="${p.id ?? ""}" class="${!curPeer && (p.id ?? null) === curChat ? "active" : ""}"`}>${esc(p.name)}</button>`).join("");
+  document.querySelectorAll("#chatpills button").forEach(b => b.onclick = () => {
+    if (b.dataset.peer) { curPeer = b.dataset.peer; curChat = null; }
+    else { curPeer = null; curChat = b.dataset.gid ? +b.dataset.gid : null; }
+    loadDump(); });
+  const q = curPeer ? `?peer=${encodeURIComponent(curPeer)}` : curChat ? `?group_id=${curChat}` : "";
+  const items = await api(`/api/dump${q}`);
   $("#dumpfeed").innerHTML = items.map(bubbleHtml).join("") ||
     `<div class="empty">nothing here — drop something 💾</div>`;
   document.querySelectorAll(".bubble .del").forEach(b => b.onclick = async () => {
     await api(`/api/dump/${b.dataset.id}`, { method:"DELETE" }); loadDump(); });
+  document.querySelectorAll(".sh-save").forEach(b => b.onclick = async () => {
+    let p = {}; try { p = JSON.parse(b.dataset.json); } catch {}
+    if (!p.app) return;
+    await api(`/api/kv/${p.app}`, { method:"PUT", body: JSON.stringify({
+      ["inbox_" + Date.now()]: JSON.stringify(p) }) });
+    toast(`saved — open ${p.app} and import from inbox/backup`); });
   const f = $("#dumpfeed"); f.scrollTop = f.scrollHeight;
 }
 function bubbleHtml(m) {
   const mine = m.username === ME.username;
-  const who = (!mine && curChat) ? `<span class="who">${esc(m.username)}</span>` : "";
+  const who = (!mine && (curChat || curPeer)) ? `<span class="who">${esc(m.username)}</span>` : "";
   let body;
   if (m.kind === "link") body = `<a href="${esc(m.content)}" target="_blank">${esc(m.content)}</a>`;
   else if (m.kind === "file") {
@@ -128,6 +142,11 @@ function bubbleHtml(m) {
          <div class="fchip"><span>${esc(m.content || "")}</span></div>`
       : `<a href="${url}" target="_blank" class="fchip"><span class="fico">${icon(m.file_path)}</span>
          <span>${esc(m.content || m.file_path.split("/").pop())}</span></a>`;
+  } else if (m.kind === "share") {
+    let p = {}; try { p = JSON.parse(m.content); } catch {}
+    body = `<div class="share-card"><div class="st">${p.type === "workout" ? "🏋️" : p.type === "recipe" || p.type === "meal" ? "🥘" : "📦"} ${esc(p.title || p.type || "shared item")}</div>
+      <div class="ss">from ${esc(p.app || "?")}</div>
+      <button class="sh-save" data-json='${esc(m.content)}'>Save to my ${esc(p.app || "apps")}</button></div>`;
   } else body = esc(m.content);
   const del = mine ? `<button class="del" data-id="${m.id}">✕</button>` : "";
   const t = new Date(m.created_at*1000).toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"});
@@ -138,13 +157,23 @@ $("#dump-text").addEventListener("keydown", e => { if (e.key === "Enter") sendDu
 async function sendDump() {
   const content = $("#dump-text").value.trim();
   if (!content) return;
-  await api("/api/dump", { method:"POST", body: JSON.stringify({ content, group_id: curChat }) });
+  await api("/api/dump", { method:"POST", body: JSON.stringify({
+    content, group_id: curChat, to_username: curPeer }) });
   $("#dump-text").value = ""; loadDump();
 }
+$("#dm-open").onclick = async () => {
+  const u = $("#dm-user").value.trim().replace(/^@/, "");
+  if (!u) return;
+  curPeer = u; curChat = null; $("#dm-user").value = "";
+  if (!PEERS.includes(u)) PEERS.push(u);
+  loadDump();
+};
 $("#dump-attach").onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return;
   const grp = curChat ? MYGROUPS.find(g => g.id === curChat) : null;
   const base = grp ? `/group/${chatSlug(grp.name)}/dump` : `/vault/${ME.username}/dump`;
+  // NOTE: DM file recipients can't read your vault — group or self dumps only for files (flagged)
+  if (curPeer) { toast("file DMs need a share-space — coming with per-DM folders"); return; }
   toast(`uploading ${f.name}…`);
   const r = await fetch(`${CP}/up${encodeURI(base)}/${encodeURIComponent(f.name)}`,
     { method:"PUT", headers:{ "PW": ME.file_token }, body: f });
@@ -307,70 +336,18 @@ $("#w-toggle").onclick = async () => {
   loadWork();
 };
 $("#mw-save").onclick = async () => {
-  const d = $("#mw-date").value;
-  if (!d || !$("#mw-start").value || !$("#mw-end").value) { toast("date + start + end required"); return; }
+  const d = DTP["mw-date"], s1 = DTP["mw-start"], s2 = DTP["mw-end"];
+  if (!d || !s1 || !s2) { toast("date + start + end required"); return; }
   const ts = (t) => Math.floor(new Date(`${d}T${t}`).getTime() / 1000);
   try {
     await api("/api/work/manual", { method:"POST", body: JSON.stringify({
-      started_at: ts($("#mw-start").value), ended_at: ts($("#mw-end").value),
+      started_at: ts(s1), ended_at: ts(s2),
       break_min: +$("#mw-break").value || 0, note: $("#mw-note").value || null }) });
     toast("entry added"); loadWork();
   } catch (e) { toast(e.message); }
 };
 
-/* ── fitness / meals / sleep ── */
-async function loadFit() {
-  const rows = await api("/api/workouts/recent");
-  $("#wolist").innerHTML = rows.slice(0, 12).map(w => `
-    <div class="lrow"><div class="grow">${esc(w.kind)}
-      <span class="sub">${fmtDT(w.performed_at)} · ${w.duration_min || "?"} min</span></div>
-      <span class="muted">~${w.est_kcal ?? "?"} kcal</span></div>`).join("")
-    || `<div class="empty">no workouts</div>`;
-}
-$("#m-save").onclick = async () => {
-  await api("/api/metrics", { method:"POST", body: JSON.stringify({
-    weight_kg: +$("#m-weight").value || null, height_cm: +$("#m-height").value || null,
-    age_years: +$("#m-age").value || null, sex: $("#m-sex").value || null }) });
-  toast("metrics logged");
-};
-$("#wo-save").onclick = async () => {
-  const r = await api("/api/workouts", { method:"POST", body: JSON.stringify({
-    kind: $("#wo-kind").value, duration_min: +$("#wo-min").value || 0 }) });
-  toast(r.est_kcal ? `logged · ~${r.est_kcal} kcal` : "logged"); loadFit();
-};
-async function loadMeals() {
-  const plans = await api("/api/meals/plans");
-  $("#pl-group").innerHTML = `<option value="">personal</option>` +
-    MYGROUPS.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join("");
-  $("#planlist").innerHTML = plans.map(p => `
-    <div class="lrow"><div class="grow">${esc(p.recipe)}
-      <span class="sub">${p.group_name ? "👥 " + esc(p.group_name) : "personal"} · ${esc(p.meal_slot || "")} ${esc(p.plan_date || "")} ${p.target_kcal ? "· " + p.target_kcal + " kcal" : ""}</span></div>
-      <button class="act" data-pid="${p.id}">Log it</button></div>`).join("")
-    || `<div class="empty">no plans yet</div>`;
-  document.querySelectorAll("#planlist .act").forEach(b => b.onclick = async () => {
-    await api("/api/meals", { method:"POST", body: JSON.stringify({ plan_id: +b.dataset.pid }) });
-    toast("logged from plan"); loadMeals(); });
-  const meals = await api("/api/meals/recent");
-  $("#meallist").innerHTML = meals.slice(0, 12).map(m => `
-    <div class="lrow"><div class="grow">${esc(m.name || "meal")}
-      <span class="sub">${fmtDT(m.eaten_at)}${m.plan_id ? " · from plan" : ""}</span></div>
-      <span class="muted">${m.kcal ?? "?"} kcal</span></div>`).join("")
-    || `<div class="empty">nothing logged</div>`;
-}
-$("#ml-save").onclick = async () => {
-  await api("/api/meals", { method:"POST", body: JSON.stringify({
-    name: $("#ml-name").value || null, kcal: +$("#ml-kcal").value || null,
-    protein_g: +$("#ml-protein").value || null }) });
-  $("#ml-name").value = $("#ml-kcal").value = $("#ml-protein").value = "";
-  toast("meal logged"); loadMeals();
-};
-$("#pl-save").onclick = async () => {
-  await api("/api/meals/plans", { method:"POST", body: JSON.stringify({
-    recipe: $("#pl-recipe").value, plan_date: $("#pl-date").value || null,
-    meal_slot: $("#pl-slot").value, target_kcal: +$("#pl-kcal").value || null,
-    group_id: +$("#pl-group").value || null }) });
-  toast("plan created"); loadMeals();
-};
+/* ── sleep ── */
 async function loadSleep() {
   const rows = await api("/api/sleep/recent");
   $("#sleeplist").innerHTML = rows.map(s => {
@@ -415,8 +392,8 @@ async function act(btn, action) {
 }
 
 /* ── settings ── */
-const SVCDESC = { work:"hours, earnings, org visibility", fitness:"metrics, workouts, MET burn",
-  meals:"logging, plans, group linking", sleep:"puck sync, quality", journal:"private writing" };
+const SVCDESC = { work:"hours, earnings, org visibility", fitness:"opens Workout Gen (ported)",
+  meals:"opens Meal Prep (ported)", sleep:"puck sync, quality", journal:"private writing" };
 async function loadSettings() {
   SVC = await api("/api/services");
   $("#svc-list").innerHTML = SVC.map(s => `
@@ -500,6 +477,137 @@ $("#j-save").onclick = async () => {
 $("#j-delete").onclick = async () => {
   await api(`/api/journal/${curEntry.id}`, { method:"DELETE" }); toast("deleted"); loadJournal();
 };
+
+/* ── custom controls ── */
+function cselectAll(root = document) {
+  root.querySelectorAll("select:not([data-cs])").forEach(sel => {
+    sel.dataset.cs = "1"; sel.style.display = "none";
+    const wrap = document.createElement("div"); wrap.className = "cs";
+    const btn = document.createElement("button"); btn.type = "button"; btn.className = "cs-btn";
+    const label = () => sel.options[sel.selectedIndex]?.text || "—";
+    btn.textContent = label();
+    wrap.appendChild(btn); sel.parentNode.insertBefore(wrap, sel); wrap.appendChild(sel);
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      document.querySelectorAll(".cs-menu").forEach(m => m.remove());
+      const menu = document.createElement("div"); menu.className = "cs-menu";
+      [...sel.options].forEach((o, i) => {
+        const d = document.createElement("div");
+        d.className = "cs-opt" + (i === sel.selectedIndex ? " sel" : "");
+        d.textContent = o.text;
+        d.onclick = () => { sel.selectedIndex = i; sel.dispatchEvent(new Event("change"));
+          btn.textContent = label(); menu.remove(); };
+        menu.appendChild(d);
+      });
+      wrap.appendChild(menu);
+    };
+    new MutationObserver(() => { btn.textContent = label(); })
+      .observe(sel, { childList: true });
+  });
+}
+document.addEventListener("click", () => document.querySelectorAll(".cs-menu").forEach(m => m.remove()));
+new MutationObserver(() => cselectAll()).observe(document.body, { childList: true, subtree: true });
+cselectAll();
+
+/* custom date + time pickers (dtp) */
+const DTP = {};   // id -> value ("YYYY-MM-DD" | "HH:MM")
+function dtpInit() {
+  document.querySelectorAll(".dtp-btn").forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      document.querySelectorAll(".dtp-pop").forEach(p => p.remove());
+      btn.parentNode.appendChild(btn.dataset.kind === "date" ? dtpCal(btn) : dtpTime(btn));
+    };
+  });
+}
+document.addEventListener("click", () => document.querySelectorAll(".dtp-pop").forEach(p => p.remove()));
+function dtpCal(btn) {
+  const pop = document.createElement("div"); pop.className = "dtp-pop";
+  pop.onclick = (e) => e.stopPropagation();
+  let cur = DTP[btn.id] ? new Date(DTP[btn.id]) : new Date();
+  const render = () => {
+    const y = cur.getFullYear(), m = cur.getMonth();
+    const first = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
+    pop.innerHTML = `<div class="dtp-head"><button data-d="-1">‹</button>
+      <span>${cur.toLocaleString(undefined,{month:"long",year:"numeric"})}</span>
+      <button data-d="1">›</button></div>
+      <div class="dtp-grid">${["S","M","T","W","T","F","S"].map(d=>`<span class="dow">${d}</span>`).join("")}
+      ${"<span></span>".repeat(first)}
+      ${Array.from({length:days},(_,i)=>`<span class="day">${i+1}</span>`).join("")}</div>`;
+    pop.querySelectorAll(".dtp-head button").forEach(b => b.onclick = () => {
+      cur.setMonth(cur.getMonth() + +b.dataset.d); render(); });
+    pop.querySelectorAll(".day").forEach(d => d.onclick = () => {
+      const dd = String(d.textContent).padStart(2,"0"), mm = String(m+1).padStart(2,"0");
+      DTP[btn.id] = `${y}-${mm}-${dd}`;
+      btn.textContent = new Date(DTP[btn.id]+"T12:00").toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+      pop.remove(); });
+  };
+  render(); return pop;
+}
+function dtpTime(btn) {
+  const pop = document.createElement("div"); pop.className = "dtp-pop";
+  pop.onclick = (e) => e.stopPropagation();
+  const [ch, cm] = (DTP[btn.id] || "09:00").split(":").map(Number);
+  pop.innerHTML = `<div class="tp-wheels">
+    <div class="tp-col" id="tp-h">${Array.from({length:24},(_,i)=>`<div class="${i===ch?"sel":""}">${String(i).padStart(2,"0")}</div>`).join("")}</div>
+    <b>:</b>
+    <div class="tp-col" id="tp-m">${Array.from({length:12},(_,i)=>`<div class="${i*5===cm?"sel":""}">${String(i*5).padStart(2,"0")}</div>`).join("")}</div>
+  </div>`;
+  const pick = () => {
+    const h = pop.querySelector("#tp-h .sel")?.textContent || "09";
+    const m = pop.querySelector("#tp-m .sel")?.textContent || "00";
+    DTP[btn.id] = `${h}:${m}`; btn.textContent = DTP[btn.id];
+  };
+  pop.querySelectorAll(".tp-col div").forEach(d => d.onclick = () => {
+    d.parentNode.querySelectorAll("div").forEach(x => x.classList.remove("sel"));
+    d.classList.add("sel"); pick(); });
+  return pop;
+}
+dtpInit();
+
+/* telegram-style drop overlay (dump view) */
+let dragDepth = 0;
+addEventListener("dragenter", (e) => {
+  if (curView !== "dump" || !e.dataTransfer?.types.includes("Files")) return;
+  dragDepth++; $("#dropzone").classList.remove("hidden");
+});
+addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("#dropzone").classList.add("hidden"); } });
+addEventListener("dragover", (e) => e.preventDefault());
+["dz-orig","dz-quick"].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener("dragover", () => el.classList.add("hot"));
+  el.addEventListener("dragleave", () => el.classList.remove("hot"));
+  el.addEventListener("drop", async (e) => {
+    e.preventDefault(); dragDepth = 0;
+    $("#dropzone").classList.add("hidden"); el.classList.remove("hot");
+    for (const f of e.dataTransfer.files)
+      await dumpUpload(id === "dz-quick" ? await maybeCompress(f) : f);
+  });
+});
+addEventListener("drop", (e) => { e.preventDefault(); dragDepth = 0; $("#dropzone").classList.add("hidden"); });
+async function maybeCompress(f) {
+  if (!/^image\/(jpeg|png|webp)$/.test(f.type)) return f;
+  const img = await createImageBitmap(f);
+  const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+  if (scale === 1 && f.type === "image/jpeg") return f;
+  const c = document.createElement("canvas");
+  c.width = img.width * scale; c.height = img.height * scale;
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.82));
+  return new File([blob], f.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" });
+}
+async function dumpUpload(f) {
+  const grp = curChat ? MYGROUPS.find(g => g.id === curChat) : null;
+  if (curPeer) { toast("file DMs need a share-space — coming"); return; }
+  const base = grp ? `/group/${chatSlug(grp.name)}/dump` : `/vault/${ME.username}/dump`;
+  toast(`uploading ${f.name}…`);
+  const r = await fetch(`${CP}/up${encodeURI(base)}/${encodeURIComponent(f.name)}`,
+    { method: "PUT", headers: { "PW": ME.file_token }, body: f });
+  if (!r.ok) { toast(`upload failed (${r.status})`); return; }
+  await api("/api/dump", { method: "POST", body: JSON.stringify({
+    content: f.name, file_path: `${base}/${f.name}`, group_id: curChat }) });
+  loadDump(); refreshBadge();
+}
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
 boot();

@@ -54,7 +54,8 @@
     <main id="content">
       <!-- DUMP -->
       <section id="view-dump" class="vw kulik">
-        <div id="chatpills"></div>
+        <div class="row" style="flex-wrap:wrap;gap:6px"><div id="chatpills" style="flex:1"></div>
+  <div class="newdm"><input id="dm-user" placeholder="@user"><button id="dm-open" class="btn-primary slim">DM</button></div></div>
         <div id="dumpfeed"></div>
         <div id="dumpbar">
           <label class="attach">📎<input type="file" id="dump-attach" hidden></label>
@@ -104,8 +105,10 @@
         </div>
         <div class="card">
           <h3>Add past time</h3>
-          <div class="row"><input id="mw-date" type="date"><input id="mw-note" placeholder="note"></div>
-          <div class="row"><input id="mw-start" type="time"><input id="mw-end" type="time">
+          <div class="row"><div class="dtp"><button class="dtp-btn" id="mw-date" data-kind="date">pick date</button></div>
+            <input id="mw-note" placeholder="note"></div>
+          <div class="row"><div class="dtp"><button class="dtp-btn" id="mw-start" data-kind="time">start</button></div>
+            <div class="dtp"><button class="dtp-btn" id="mw-end" data-kind="time">end</button></div>
             <input id="mw-break" type="number" placeholder="break min"></div>
           <button id="mw-save" class="btn-primary">Add entry</button>
         </div>
@@ -113,40 +116,7 @@
           <div id="worklist" class="list"></div></div>
       </section>
 
-      <!-- FITNESS -->
-      <section id="view-fitness" class="vw hidden">
-        <div class="card"><h3>Body metrics</h3>
-          <div class="row"><input id="m-weight" type="number" step="0.1" placeholder="weight kg">
-            <input id="m-height" type="number" placeholder="height cm"></div>
-          <div class="row"><input id="m-age" type="number" placeholder="age">
-            <select id="m-sex"><option value="">sex</option><option value="m">m</option><option value="f">f</option></select></div>
-          <button id="m-save" class="btn-primary">Log metrics</button></div>
-        <div class="card"><h3>Log workout <span class="muted">(kcal auto-estimated)</span></h3>
-          <div class="row"><select id="wo-kind"><option>strength</option><option>cardio</option><option>running</option>
-            <option>walking</option><option>cycling</option><option>hiit</option><option>mobility</option><option>sports</option></select>
-            <input id="wo-min" type="number" placeholder="minutes"></div>
-          <button id="wo-save" class="btn-primary">Log workout</button></div>
-        <div class="card"><h3>Recent</h3><div id="wolist" class="list"></div></div>
-      </section>
 
-      <!-- MEALS -->
-      <section id="view-meals" class="vw hidden">
-        <div class="card"><h3>Log a meal</h3>
-          <input id="ml-name" placeholder="what did you eat">
-          <div class="row"><input id="ml-kcal" type="number" placeholder="kcal">
-            <input id="ml-protein" type="number" placeholder="protein g"></div>
-          <button id="ml-save" class="btn-primary">Log meal</button></div>
-        <div class="card"><h3>Plans <span class="muted">(yours + groups)</span></h3>
-          <div id="planlist" class="list"></div>
-          <details><summary class="muted">＋ new plan</summary>
-            <input id="pl-recipe" placeholder="recipe / meal">
-            <div class="row"><input id="pl-date" type="date">
-              <select id="pl-slot"><option>dinner</option><option>lunch</option><option>breakfast</option><option>snack</option></select></div>
-            <div class="row"><input id="pl-kcal" type="number" placeholder="target kcal">
-              <select id="pl-group"><option value="">personal</option></select></div>
-            <button id="pl-save" class="btn-primary">Create plan</button></details></div>
-        <div class="card"><h3>Recent</h3><div id="meallist" class="list"></div></div>
-      </section>
 
       <!-- SLEEP -->
       <section id="view-sleep" class="vw hidden">
@@ -205,6 +175,10 @@
         <button id="j-delete" class="btn-journal danger hidden">Delete</button></div>
     </div>
   </main>
+</div>
+<div id="dropzone" class="hidden">
+  <div class="dz" id="dz-orig"><h2>Drop files here</h2><p>original quality → scanned → your space</p></div>
+  <div class="dz" id="dz-quick"><h2>Drop photos here</h2><p>quick send — compressed to save space</p></div>
 </div>
 <script src="app.js"></script>
 </body>

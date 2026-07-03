@@ -19,10 +19,33 @@ def init_db():
     conn = connect()
     conn.executescript(sql)
     # migrations for columns added after first release
-    try:
-        conn.execute("ALTER TABLE users ADD COLUMN must_change_pw INTEGER NOT NULL DEFAULT 0")
-    except Exception:
-        pass
+    for mig in [
+        "ALTER TABLE users ADD COLUMN must_change_pw INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE dump_items ADD COLUMN to_user_id INTEGER REFERENCES users(id)",
+    ]:
+        try:
+            conn.execute(mig)
+        except Exception:
+            pass
+    # dump_items kind CHECK must include 'share' — rebuild if old constraint present
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE name='dump_items'").fetchone()
+    if row and "'share'" not in (row[0] or ""):
+        conn.executescript("""
+            ALTER TABLE dump_items RENAME TO dump_items_old;
+            CREATE TABLE dump_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                group_id INTEGER REFERENCES groups(id),
+                to_user_id INTEGER REFERENCES users(id),
+                created_at INTEGER NOT NULL,
+                kind TEXT CHECK(kind IN ('text','link','file','share')) NOT NULL,
+                content TEXT, file_path TEXT);
+            INSERT INTO dump_items (id,user_id,group_id,to_user_id,created_at,kind,content,file_path)
+                SELECT id,user_id,group_id,to_user_id,created_at,kind,content,file_path FROM dump_items_old;
+            DROP TABLE dump_items_old;
+            CREATE INDEX IF NOT EXISTS idx_dump_personal ON dump_items(user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_dump_group ON dump_items(group_id, created_at);
+        """)
     conn.commit()
     conn.close()
 

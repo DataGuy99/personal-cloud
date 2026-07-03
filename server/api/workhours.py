@@ -112,3 +112,32 @@ def manual():
                  (g.user["id"], gid, start, end, rate, d.get("activity"), d.get("note")))
     conn.commit(); conn.close()
     return jsonify({"ok": True})
+
+
+@bp.put("/<int:sid>")
+@require_auth
+def edit_session(sid):
+    d = request.get_json(silent=True) or {}
+    conn = db.connect()
+    row = conn.execute("SELECT * FROM work_sessions WHERE id=? AND user_id=?",
+                       (sid, g.user["id"])).fetchone()
+    if not row:
+        conn.close(); return jsonify({"error": "not found"}), 404
+    fields = {k: d[k] for k in ("started_at", "ended_at", "hourly_rate", "activity", "note")
+              if k in d}
+    if not fields:
+        conn.close(); return jsonify({"error": "nothing to update"}), 400
+    sets = ", ".join(f"{k}=?" for k in fields)
+    conn.execute(f"UPDATE work_sessions SET {sets} WHERE id=?", (*fields.values(), sid))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True})
+
+
+@bp.delete("/<int:sid>")
+@require_auth
+def delete_session(sid):
+    conn = db.connect()
+    cur = conn.execute("DELETE FROM work_sessions WHERE id=? AND user_id=?",
+                       (sid, g.user["id"]))
+    conn.commit(); ok = cur.rowcount; conn.close()
+    return (jsonify({"ok": True}) if ok else (jsonify({"error": "not found"}), 404))
