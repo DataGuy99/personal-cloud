@@ -174,11 +174,12 @@ if ! done_step "06-dirs"; then
   mkdir -p /staging/vault/{alice,bob,sil}
   mkdir -p /staging/shared/{work,baking}
   mkdir -p /staging/public/{movies,tv,music,photos,unknown}
+  mkdir -p /groups /staging/group
   mkdir -p /incoming/{movies,tv,music,photos,memes,docs,unknown,anonymous}
   mkdir -p /incoming/.archive /incoming/.quarantine
   mkdir -p /users/{alice,bob,sil}/private /shares /storage/drive{1,2,3,4,5,6,7,8}
   mkdir -p /shares/alice-bob-work /shares/alice-sil-baking
-  chown -R copyparty:copyparty /storage/pool /incoming /users /shares /staging
+  chown -R copyparty:copyparty /storage/pool /incoming /users /shares /staging /groups
   # Pre-create log files the copyparty user needs to write to
   for logf in /var/log/personal-cloud-api.log /var/log/copyparty-hooks.log /var/log/quarantine-scan.log /var/log/scanner-worker.log; do
     touch "$logf"; chown copyparty:copyparty "$logf"
@@ -576,6 +577,9 @@ if ! done_step "15-services"; then
   command -v jellyfin &>/dev/null && usermod -aG copyparty jellyfin 2>/dev/null || true
   systemctl daemon-reload
   systemctl disable share-manager 2>/dev/null || true
+  # API (runs as copyparty) must be able to reload copyparty after conf regen
+  echo "copyparty ALL=(root) NOPASSWD: /usr/bin/systemctl reload-or-restart copyparty" \
+    > /etc/sudoers.d/copyparty-reload && chmod 440 /etc/sudoers.d/copyparty-reload
   for svc in copyparty personal-cloud-api scanner-worker wg-quick@wg0; do
     systemctl enable "$svc"; systemctl restart "$svc" 2>/dev/null || warn "$svc failed — check journalctl"
   done

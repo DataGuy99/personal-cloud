@@ -109,7 +109,7 @@ def main():
         f.write(conf)
     os.chmod(CONF, 0o600)
     try:
-        subprocess.run(["systemctl", "reload-or-restart", "copyparty"],
+        subprocess.run(["sudo", "-n", "systemctl", "reload-or-restart", "copyparty"],
                        check=True, capture_output=True, timeout=30)
         print("copyparty.conf regenerated + copyparty reloaded")
     except Exception as e:

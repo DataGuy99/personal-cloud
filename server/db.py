@@ -22,6 +22,7 @@ def init_db():
     for mig in [
         "ALTER TABLE users ADD COLUMN must_change_pw INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE dump_items ADD COLUMN to_user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE dump_items ADD COLUMN meta TEXT NOT NULL DEFAULT '{}'",
     ]:
         try:
             conn.execute(mig)

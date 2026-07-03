@@ -25,6 +25,11 @@ def clock_in():
         if sv:
             rate = json.loads(sv["settings"]).get("hourly_rate")
     gid = d.get("group_id")
+    if gid is None:
+        sv = conn.execute("SELECT settings FROM user_services WHERE user_id=? AND service='work' AND enabled=1",
+                          (g.user["id"],)).fetchone()
+        if sv:
+            gid = json.loads(sv["settings"]).get("default_group")
     if gid:
         ok = conn.execute("SELECT 1 FROM group_members WHERE group_id=? AND user_id=?",
                           (gid, g.user["id"])).fetchone()
@@ -70,12 +75,30 @@ def status():
 @bp.get("/sessions")
 @require_auth
 def sessions():
+    days = min(int(request.args.get("days", 45)), 400)
+    since = int(time.time()) - days * 86400
     conn = db.connect()
     rows = conn.execute(
-        "SELECT * FROM work_sessions WHERE user_id=? ORDER BY started_at DESC LIMIT 60",
-        (g.user["id"],)).fetchall()
+        "SELECT * FROM work_sessions WHERE user_id=? AND started_at>=? "
+        "ORDER BY started_at DESC LIMIT 500", (g.user["id"], since)).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+@bp.get("/days")
+@require_auth
+def days():
+    """Dates with logged sessions (calendar dots). ?year=&month= (1-12)."""
+    import datetime as dt
+    y, m = int(request.args["year"]), int(request.args["month"])
+    start = int(dt.datetime(y, m, 1).timestamp())
+    end = int(dt.datetime(y + (m == 12), m % 12 + 1, 1).timestamp())
+    conn = db.connect()
+    rows = conn.execute(
+        "SELECT DISTINCT date(started_at,'unixepoch','localtime') d FROM work_sessions "
+        "WHERE user_id=? AND started_at>=? AND started_at<?", (g.user["id"], start, end)).fetchall()
+    conn.close()
+    return jsonify([r["d"] for r in rows])
 
 
 @bp.post("/manual")

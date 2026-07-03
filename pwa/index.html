@@ -110,9 +110,14 @@
           <div class="row"><div class="dtp"><button class="dtp-btn" id="mw-start" data-kind="time">start</button></div>
             <div class="dtp"><button class="dtp-btn" id="mw-end" data-kind="time">end</button></div>
             <input id="mw-break" type="number" placeholder="break min"></div>
+          <div id="mw-segs"></div>
+          <div class="row"><button id="mw-addseg" class="btn-ghost" style="border:0;background:none;cursor:pointer">＋ break day into segments</button></div>
           <button id="mw-save" class="btn-primary">Add entry</button>
         </div>
         <div class="card"><h3>Sessions <span id="w-rate-label" class="muted"></span></h3>
+          <div class="seg" id="inc-seg"><button data-g="w" class="active">Weekly</button>
+            <button data-g="2w">Biweekly</button><button data-g="m">Monthly</button></div>
+          <div id="inclist" class="list"></div>
           <div id="worklist" class="list"></div></div>
       </section>
 

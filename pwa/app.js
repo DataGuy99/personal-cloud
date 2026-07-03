@@ -122,6 +122,7 @@ async function loadDump() {
     `<div class="empty">nothing here — drop something 💾</div>`;
   document.querySelectorAll(".bubble .del").forEach(b => b.onclick = async () => {
     await api(`/api/dump/${b.dataset.id}`, { method:"DELETE" }); loadDump(); });
+  wireMedia();
   document.querySelectorAll(".sh-save").forEach(b => b.onclick = async () => {
     let p = {}; try { p = JSON.parse(b.dataset.json); } catch {}
     if (!p.app) return;
@@ -133,15 +134,23 @@ async function loadDump() {
 function bubbleHtml(m) {
   const mine = m.username === ME.username;
   const who = (!mine && (curChat || curPeer)) ? `<span class="who">${esc(m.username)}</span>` : "";
+  let meta = {}; try { meta = JSON.parse(m.meta || "{}"); } catch {}
+  const blur = meta.sensitive ? " blur" : "";
   let body;
   if (m.kind === "link") body = `<a href="${esc(m.content)}" target="_blank">${esc(m.content)}</a>`;
   else if (m.kind === "file") {
     const url = `${CP}${encodeURI(m.file_path)}?pw=${ME.file_token}`;
-    body = /\.(jpe?g|png|gif|webp)$/i.test(m.file_path)
-      ? `<a href="${url}" target="_blank"><img src="${url}" onerror="this.outerHTML='📄 scanning…'"></a>
-         <div class="fchip"><span>${esc(m.content || "")}</span></div>`
-      : `<a href="${url}" target="_blank" class="fchip"><span class="fico">${icon(m.file_path)}</span>
-         <span>${esc(m.content || m.file_path.split("/").pop())}</span></a>`;
+    const nameLine = meta.showname === false ? "" :
+      `<div class="fchip"><span>${esc(m.content || "")}</span></div>`;
+    if (/\.(jpe?g|png|gif|webp)$/i.test(m.file_path))
+      body = `<img class="dmedia${blur}" src="${url}" data-url="${url}"
+        onerror="this.outerHTML='📄 scanning…'">${nameLine}`;
+    else if (/\.(mp4|webm|mov|m4v)$/i.test(m.file_path))
+      body = `<video class="dmedia dvid${blur}" src="${url}" muted loop playsinline
+        preload="metadata"></video>${nameLine}`;
+    else
+      body = `<a href="${url}" target="_blank" class="fchip"><span class="fico">${icon(m.file_path)}</span>
+        <span>${esc(m.content || m.file_path.split("/").pop())}</span></a>`;
   } else if (m.kind === "share") {
     let p = {}; try { p = JSON.parse(m.content); } catch {}
     body = `<div class="share-card"><div class="st">${p.type === "workout" ? "🏋️" : p.type === "recipe" || p.type === "meal" ? "🥘" : "📦"} ${esc(p.title || p.type || "shared item")}</div>
@@ -150,7 +159,9 @@ function bubbleHtml(m) {
   } else body = esc(m.content);
   const del = mine ? `<button class="del" data-id="${m.id}">✕</button>` : "";
   const t = new Date(m.created_at*1000).toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"});
-  return `<div class="bubble ${mine ? "mine" : "theirs"}">${del}${who}${body}<span class="when">${t}</span></div>`;
+  return `<div class="bubble ${mine ? "mine" : "theirs"}" data-id="${m.id}"
+    data-mine="${mine ? 1 : 0}" data-kind="${m.kind}" data-sens="${meta.sensitive ? 1 : 0}"
+    data-name="${meta.showname === false ? 0 : 1}">${del}${who}${body}<span class="when">${t}</span></div>`;
 }
 $("#dump-send").onclick = sendDump;
 $("#dump-text").addEventListener("keydown", e => { if (e.key === "Enter") sendDump(); });
@@ -170,18 +181,57 @@ $("#dm-open").onclick = async () => {
 };
 $("#dump-attach").onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return;
-  const grp = curChat ? MYGROUPS.find(g => g.id === curChat) : null;
-  const base = grp ? `/group/${chatSlug(grp.name)}/dump` : `/vault/${ME.username}/dump`;
-  // NOTE: DM file recipients can't read your vault — group or self dumps only for files (flagged)
-  if (curPeer) { toast("file DMs need a share-space — coming with per-DM folders"); return; }
-  toast(`uploading ${f.name}…`);
-  const r = await fetch(`${CP}/up${encodeURI(base)}/${encodeURIComponent(f.name)}`,
-    { method:"PUT", headers:{ "PW": ME.file_token }, body: f });
-  if (!r.ok) { toast(`upload failed (${r.status})`); return; }
-  await api("/api/dump", { method:"POST", body: JSON.stringify({
-    content: f.name, file_path: `${base}/${f.name}`, group_id: curChat }) });
-  e.target.value = ""; toast("dropped — scanning"); loadDump(); refreshBadge();
+  await dumpUpload(f); e.target.value = "";
 };
+
+let vidObs = null;
+function wireMedia() {
+  vidObs?.disconnect();
+  vidObs = new IntersectionObserver(es => es.forEach(e => {
+    if (e.target.classList.contains("blur")) return e.target.pause();
+    e.isIntersecting ? e.target.play().catch(() => {}) : e.target.pause();
+  }), { threshold: 0.5 });
+  document.querySelectorAll(".dvid").forEach(v => vidObs.observe(v));
+  document.querySelectorAll(".dmedia.blur").forEach(el => el.onclick = () => {
+    el.classList.toggle("blur");
+    if (el.tagName === "VIDEO") el.classList.contains("blur") ? el.pause() : el.play().catch(() => {});
+  });
+  document.querySelectorAll(".dmedia:not(.blur)").forEach(el => {
+    if (el.tagName === "IMG") el.onclick = () => window.open(el.dataset.url, "_blank");
+  });
+  document.querySelectorAll(".bubble").forEach(b => {
+    b.oncontextmenu = (e) => { e.preventDefault(); bubbleMenu(b, e.clientX, e.clientY); };
+    let lp;
+    b.addEventListener("touchstart", () => lp = setTimeout(() =>
+      bubbleMenu(b, innerWidth / 2 - 90, innerHeight / 2), 550), { passive: true });
+    ["touchend", "touchmove"].forEach(ev => b.addEventListener(ev, () => clearTimeout(lp)));
+  });
+}
+function bubbleMenu(b, x, y) {
+  document.querySelectorAll(".ctxmenu").forEach(m => m.remove());
+  const mine = b.dataset.mine === "1", isFile = b.dataset.kind === "file";
+  const sens = b.dataset.sens === "1", named = b.dataset.name === "1";
+  const m = document.createElement("div"); m.className = "ctxmenu";
+  m.style.left = Math.min(x, innerWidth - 190) + "px";
+  m.style.top = Math.min(y, innerHeight - 200) + "px";
+  const items = [];
+  if (isFile) items.push(["↗ open", () => b.querySelector("[data-url],video,a")?.click?.()]);
+  if (mine && isFile) items.push(
+    [sens ? "👁 unmark sensitive" : "🙈 mark sensitive",
+      () => setMeta(b.dataset.id, { sensitive: !sens, showname: named })],
+    [named ? "🏷 hide filename" : "🏷 show filename",
+      () => setMeta(b.dataset.id, { sensitive: sens, showname: !named })]);
+  if (mine) items.push(["🗑 delete", async () => {
+    await api(`/api/dump/${b.dataset.id}`, { method: "DELETE" }); loadDump(); }]);
+  m.innerHTML = items.map(([l], i) => `<div class="ctx-opt" data-i="${i}">${l}</div>`).join("");
+  m.querySelectorAll(".ctx-opt").forEach(o => o.onclick = () => { m.remove(); items[+o.dataset.i][1](); });
+  document.body.appendChild(m);
+}
+async function setMeta(id, meta) {
+  await api(`/api/dump/${id}/meta`, { method: "PUT", body: JSON.stringify(meta) });
+  loadDump();
+}
+document.addEventListener("click", () => document.querySelectorAll(".ctxmenu").forEach(m => m.remove()));
 
 /* ── files + search ── */
 async function loadFiles() {
@@ -305,11 +355,47 @@ function tickTimer(startTs) {
   };
   render(); tInterval = setInterval(render, 1000);
 }
+const BASE_ACTS = ["desk","standing","driving","manual","construction"];
+function workSettings() { return SVC.find(x => x.service === "work")?.settings || {}; }
+async function saveWorkSettings(patch) {
+  const st = { ...workSettings(), ...patch };
+  await api("/api/services/work", { method:"PUT", body: JSON.stringify({ enabled:true, settings: st }) });
+  SVC = await api("/api/services");
+}
+function wireActivityCombo() {
+  const inp = $("#w-activity"), menu = document.querySelector("#w-activity-c .combo-menu");
+  const acts = () => [...new Set([...(workSettings().activities || []), ...BASE_ACTS])];
+  const render = () => {
+    const q = inp.value.trim().toLowerCase();
+    const hits = acts().filter(a => a.toLowerCase().includes(q));
+    menu.innerHTML = hits.map(a => `<div data-v="${esc(a)}">${esc(a)}</div>`).join("") +
+      (q && !acts().some(a => a.toLowerCase() === q)
+        ? `<div class="addnew" data-new="1">＋ add "${esc(inp.value.trim())}"</div>` : "");
+    menu.classList.toggle("hidden", !menu.innerHTML);
+    menu.querySelectorAll("div").forEach(d => d.onclick = async (e) => {
+      e.stopPropagation();
+      if (d.dataset.new) { const v = inp.value.trim();
+        await saveWorkSettings({ activities: [...(workSettings().activities || []), v] });
+        inp.value = v; }
+      else inp.value = d.dataset.v;
+      menu.classList.add("hidden");
+    });
+  };
+  inp.oninput = render;
+  inp.onfocus = render;
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#w-activity-c")) menu.classList.add("hidden"); });
+}
 async function loadWork() {
   $("#w-group").innerHTML = `<option value="">personal</option>` +
     MYGROUPS.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join("");
-  const svc = SVC.find(s => s.service === "work");
-  const rate = svc?.settings?.hourly_rate;
+  const st = workSettings();
+  const rate = st.hourly_rate;
+  if (st.default_group) $("#w-group").value = String(st.default_group);
+  $("#w-default").checked = !!st.default_group;
+  $("#w-default").onchange = () => saveWorkSettings({
+    default_group: $("#w-default").checked ? (+$("#w-group").value || null) : null });
+  wireActivityCombo();
   $("#w-rate-label").textContent = rate ? `· paired rate $${rate}/hr` : "· set rate in Settings";
   const w = await api("/api/work/status");
   const btn = $("#w-toggle");
@@ -319,31 +405,101 @@ async function loadWork() {
   } else { btn.textContent = "Start"; btn.classList.remove("running");
     $("#t-sub").textContent = "not on the clock";
     clearInterval(tInterval); $("#t-elapsed").textContent = "00:00:00"; }
-  const rows = await api("/api/work/sessions");
-  $("#worklist").innerHTML = rows.slice(0, 15).map(s => {
+  const rows = await api("/api/work/sessions?days=120");
+  WSESS = rows;
+  renderIncome();
+  $("#worklist").innerHTML = rows.slice(0, 25).map(s => {
     const h = hrs(s.started_at, s.ended_at);
     const pay = s.hourly_rate ? ` · $${(h * s.hourly_rate).toFixed(2)}` : "";
-    return `<div class="lrow"><div class="grow">${esc(s.activity || "work")}${s.note ? " — " + esc(s.note) : ""}
+    return `<div class="lrow editable" data-sid="${s.id}"><div class="grow">${esc(s.activity || "work")}${s.note ? " — " + esc(s.note) : ""}
       <span class="sub">${fmtDT(s.started_at)} · ${s.ended_at ? h.toFixed(1)+"h"+pay : "⏱ running"}</span></div></div>`;
   }).join("") || `<div class="empty">no sessions</div>`;
+  document.querySelectorAll("#worklist .editable").forEach(el => el.onclick = () =>
+    editSession(el, rows.find(r => r.id === +el.dataset.sid)));
+}
+let WSESS = [];
+function editSession(el, s) {
+  if (!s || el.classList.contains("editing")) return;
+  el.classList.add("editing");
+  el.innerHTML = `<div class="sess-edit" style="width:100%">
+    <input class="e-act" value="${esc(s.activity || "")}" placeholder="activity">
+    <input class="e-note" value="${esc(s.note || "")}" placeholder="note">
+    <div class="row"><input class="e-rate" type="number" step="0.5" value="${s.hourly_rate ?? ""}" placeholder="$/hr">
+      <button class="act e-save">Save</button><button class="act e-del" style="background:var(--danger)">Delete</button></div></div>`;
+  el.onclick = null;
+  el.querySelector(".e-save").onclick = async () => {
+    await api(`/api/work/${s.id}`, { method:"PUT", body: JSON.stringify({
+      activity: el.querySelector(".e-act").value || null,
+      note: el.querySelector(".e-note").value || null,
+      hourly_rate: +el.querySelector(".e-rate").value || null }) });
+    toast("saved"); loadWork(); };
+  el.querySelector(".e-del").onclick = async () => {
+    await api(`/api/work/${s.id}`, { method:"DELETE" }); toast("deleted"); loadWork(); };
+}
+let incMode = "w";
+document.querySelectorAll("#inc-seg button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#inc-seg button").forEach(x => x.classList.remove("active"));
+  b.classList.add("active"); incMode = b.dataset.g; renderIncome();
+});
+function renderIncome() {
+  const span = incMode === "w" ? 7 : incMode === "2w" ? 14 : 30;
+  const buckets = {};
+  WSESS.forEach(s => {
+    if (!s.ended_at) return;
+    const bucket = Math.floor(s.started_at / (span * 86400));
+    const h = (s.ended_at - s.started_at) / 3600;
+    const b2 = buckets[bucket] ??= { h: 0, pay: 0, from: bucket * span * 86400 };
+    b2.h += h; if (s.hourly_rate) b2.pay += h * s.hourly_rate;
+  });
+  $("#inclist").innerHTML = Object.values(buckets).sort((a,b) => b.from - a.from).slice(0, 6)
+    .map(b => `<div class="lrow"><div class="grow">${fmtDay(b.from)} – ${fmtDay(b.from + span*86400 - 1)}</div>
+      <span class="muted">${b.h.toFixed(1)}h · $${b.pay.toFixed(2)}</span></div>`).join("");
 }
 $("#w-toggle").onclick = async () => {
   const w = await api("/api/work/status");
   if (w.id) { await api("/api/work/clockout", { method:"POST" }); toast("clocked out"); }
-  else { await api("/api/work/clockin", { method:"POST", body: JSON.stringify({
-      activity: $("#w-activity").value, group_id: +$("#w-group").value || null,
-      note: $("#w-note").value || null }) }); toast("clocked in"); }
+  else {
+    const body = { activity: $("#w-activity").value.trim() || null, note: $("#w-note").value || null };
+    if (!$("#w-default").checked) body.group_id = +$("#w-group").value || null;
+    await api("/api/work/clockin", { method:"POST", body: JSON.stringify(body) });
+    toast("clocked in"); }
   loadWork();
 };
+$("#mw-addseg").onclick = () => {
+  const div = document.createElement("div"); div.className = "row seg-row";
+  div.innerHTML = `<input class="sg-h" type="number" placeholder="hr" style="max-width:70px">
+    <input class="sg-m" type="number" placeholder="min" style="max-width:76px">
+    <input class="sg-d" placeholder="what was done">
+    <button class="act" style="background:var(--danger)">✕</button>`;
+  div.querySelector("button").onclick = () => div.remove();
+  $("#mw-segs").appendChild(div);
+};
 $("#mw-save").onclick = async () => {
-  const d = DTP["mw-date"], s1 = DTP["mw-start"], s2 = DTP["mw-end"];
-  if (!d || !s1 || !s2) { toast("date + start + end required"); return; }
+  const d = DTP["mw-date"], s1 = DTP["mw-start"];
+  if (!d || !s1) { toast("date + start required"); return; }
   const ts = (t) => Math.floor(new Date(`${d}T${t}`).getTime() / 1000);
+  const segs = [...document.querySelectorAll(".seg-row")].map(r => ({
+    min: (+r.querySelector(".sg-h").value || 0) * 60 + (+r.querySelector(".sg-m").value || 0),
+    desc: r.querySelector(".sg-d").value.trim() })).filter(x => x.min > 0);
   try {
-    await api("/api/work/manual", { method:"POST", body: JSON.stringify({
-      started_at: ts(s1), ended_at: ts(s2),
-      break_min: +$("#mw-break").value || 0, note: $("#mw-note").value || null }) });
-    toast("entry added"); loadWork();
+    if (segs.length) {                       // sequential segments from start time
+      let cur = ts(s1);
+      for (const sg of segs) {
+        await api("/api/work/manual", { method:"POST", body: JSON.stringify({
+          started_at: cur, duration_min: sg.min, note: sg.desc || null }) });
+        cur += sg.min * 60;
+      }
+      toast(`${segs.length} segments added`);
+    } else {
+      const s2 = DTP["mw-end"];
+      if (!s2) { toast("end time or segments required"); return; }
+      await api("/api/work/manual", { method:"POST", body: JSON.stringify({
+        started_at: ts(s1), ended_at: ts(s2),
+        break_min: +$("#mw-break").value || 0, note: $("#mw-note").value || null }) });
+      toast("entry added");
+    }
+    document.querySelectorAll(".seg-row").forEach(r => r.remove());
+    loadWork();
   } catch (e) { toast(e.message); }
 };
 
@@ -525,6 +681,12 @@ function dtpCal(btn) {
   const pop = document.createElement("div"); pop.className = "dtp-pop";
   pop.onclick = (e) => e.stopPropagation();
   let cur = DTP[btn.id] ? new Date(DTP[btn.id]) : new Date();
+  let dots = [];
+  const fetchDots = () => api(`/api/work/days?year=${cur.getFullYear()}&month=${cur.getMonth()+1}`)
+    .then(d => { dots = d; paint(); }).catch(() => {});
+  const paint = () => pop.querySelectorAll(".day").forEach(el => {
+    const dd = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(el.textContent).padStart(2,"0")}`;
+    el.classList.toggle("dot", dots.includes(dd)); });
   const render = () => {
     const y = cur.getFullYear(), m = cur.getMonth();
     const first = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
@@ -535,7 +697,8 @@ function dtpCal(btn) {
       ${"<span></span>".repeat(first)}
       ${Array.from({length:days},(_,i)=>`<span class="day">${i+1}</span>`).join("")}</div>`;
     pop.querySelectorAll(".dtp-head button").forEach(b => b.onclick = () => {
-      cur.setMonth(cur.getMonth() + +b.dataset.d); render(); });
+      cur.setMonth(cur.getMonth() + +b.dataset.d); render(); fetchDots(); });
+    fetchDots();
     pop.querySelectorAll(".day").forEach(d => d.onclick = () => {
       const dd = String(d.textContent).padStart(2,"0"), mm = String(m+1).padStart(2,"0");
       DTP[btn.id] = `${y}-${mm}-${dd}`;
@@ -599,13 +762,14 @@ async function maybeCompress(f) {
 async function dumpUpload(f) {
   const grp = curChat ? MYGROUPS.find(g => g.id === curChat) : null;
   if (curPeer) { toast("file DMs need a share-space — coming"); return; }
-  const base = grp ? `/group/${chatSlug(grp.name)}/dump` : `/vault/${ME.username}/dump`;
+  const base = grp ? `/group/${chatSlug(grp.name)}` : `/vault/${ME.username}`;
+  const fname = `dump-${Date.now().toString(36)}-${f.name}`;
   toast(`uploading ${f.name}…`);
-  const r = await fetch(`${CP}/up${encodeURI(base)}/${encodeURIComponent(f.name)}`,
+  const r = await fetch(`${CP}/up${encodeURI(base)}/${encodeURIComponent(fname)}`,
     { method: "PUT", headers: { "PW": ME.file_token }, body: f });
   if (!r.ok) { toast(`upload failed (${r.status})`); return; }
   await api("/api/dump", { method: "POST", body: JSON.stringify({
-    content: f.name, file_path: `${base}/${f.name}`, group_id: curChat }) });
+    content: f.name, file_path: `${base}/${fname}`, group_id: curChat }) });
   loadDump(); refreshBadge();
 }
 

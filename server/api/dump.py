@@ -95,6 +95,19 @@ def feed():
     return jsonify([dict(r) for r in list(rows)[::-1]])  # oldest-first for chat render
 
 
+@bp.put("/<int:iid>/meta")
+@require_auth
+def set_meta(iid):
+    """Owner-editable presentation meta: {"sensitive":bool,"showname":bool}"""
+    m = request.get_json(silent=True) or {}
+    conn = db.connect()
+    cur = conn.execute("UPDATE dump_items SET meta=? WHERE id=? AND user_id=?",
+                       (json.dumps({k: bool(m[k]) for k in ("sensitive", "showname") if k in m}),
+                        iid, g.user["id"]))
+    conn.commit(); ok = cur.rowcount; conn.close()
+    return (jsonify({"ok": True}) if ok else (jsonify({"error": "not yours"}), 404))
+
+
 @bp.delete("/<int:iid>")
 @require_auth
 def delete_item(iid):
