@@ -30,7 +30,7 @@ def init_db():
             pass
     # dump_items kind CHECK must include 'share' — rebuild if old constraint present
     row = conn.execute("SELECT sql FROM sqlite_master WHERE name='dump_items'").fetchone()
-    if row and "'share'" not in (row[0] or ""):
+    if row and "'todo'" not in (row[0] or ""):
         conn.executescript("""
             ALTER TABLE dump_items RENAME TO dump_items_old;
             CREATE TABLE dump_items (
@@ -39,10 +39,11 @@ def init_db():
                 group_id INTEGER REFERENCES groups(id),
                 to_user_id INTEGER REFERENCES users(id),
                 created_at INTEGER NOT NULL,
-                kind TEXT CHECK(kind IN ('text','link','file','share')) NOT NULL,
-                content TEXT, file_path TEXT);
-            INSERT INTO dump_items (id,user_id,group_id,to_user_id,created_at,kind,content,file_path)
-                SELECT id,user_id,group_id,to_user_id,created_at,kind,content,file_path FROM dump_items_old;
+                kind TEXT CHECK(kind IN ('text','link','file','share','todo')) NOT NULL,
+                content TEXT, file_path TEXT, meta TEXT NOT NULL DEFAULT '{}');
+            INSERT INTO dump_items (id,user_id,group_id,to_user_id,created_at,kind,content,file_path,meta)
+                SELECT id,user_id,group_id,to_user_id,created_at,kind,content,file_path,
+                       COALESCE(meta,'{}') FROM dump_items_old;
             DROP TABLE dump_items_old;
             CREATE INDEX IF NOT EXISTS idx_dump_personal ON dump_items(user_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_dump_group ON dump_items(group_id, created_at);

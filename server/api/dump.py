@@ -46,6 +46,9 @@ def post_item():
         to_id = tu["id"]; gid = None
     if d.get("kind") == "share":
         kind, content = "share", json.dumps(d.get("payload") or {})
+    elif d.get("kind") == "todo":
+        kind, content = "todo", json.dumps({"title": d.get("title") or "Todo",
+                                            "items": d.get("items") or []})
     elif d.get("file_path"):
         kind, content = "file", d.get("content")
     else:
@@ -93,6 +96,18 @@ def feed():
             (g.user["username"], g.user["id"], before)).fetchall()
     conn.close()
     return jsonify([dict(r) for r in list(rows)[::-1]])  # oldest-first for chat render
+
+
+@bp.put("/<int:iid>/content")
+@require_auth
+def set_content(iid):
+    """Owner edits body (todo toggles, note text)."""
+    d = request.get_json(silent=True) or {}
+    conn = db.connect()
+    cur = conn.execute("UPDATE dump_items SET content=? WHERE id=? AND user_id=?",
+                       (d.get("content"), iid, g.user["id"]))
+    conn.commit(); ok = cur.rowcount; conn.close()
+    return (jsonify({"ok": True}) if ok else (jsonify({"error": "not yours"}), 404))
 
 
 @bp.put("/<int:iid>/meta")

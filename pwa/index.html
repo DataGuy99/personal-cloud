@@ -1,259 +1,223 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light" data-tone="warm" data-surface="flat">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#16140f">
-<title>Nook</title>
+<meta name="theme-color" content="#ece8e0">
+<title>NOOK</title>
 <link rel="manifest" href="manifest.json">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<!-- ══ LOGIN ══ -->
-<div id="v-login" class="screen">
-  <div class="lockwrap">
-    <div class="monogram">N</div>
-    <div class="lockname">Nook</div>
-    <div class="lockdim">a quiet place for your things</div>
-    <div class="lockform">
-      <input id="lg-user" placeholder="user" autocomplete="username" spellcheck="false">
-      <input id="lg-pass" type="password" placeholder="password" autocomplete="current-password">
-      <button id="lg-go" class="btn-ink">Enter</button>
-      <div id="lg-err" class="err"></div>
-    </div>
+<!-- ══ LOCK / LOGIN ══ -->
+<div id="v-lock">
+  <div class="mono-ring"><div class="mono-in"><span>NK</span></div></div>
+  <div class="wordmark">&ldquo;NOOK&rdquo;</div>
+  <div class="lock-sub">Welcome back &middot; sign in</div>
+  <div class="lock-fields">
+    <input id="lg-user" placeholder="username" autocomplete="username">
+    <input id="lg-pass" type="password" placeholder="password" autocomplete="current-password">
   </div>
+  <div id="lg-err" class="err"></div>
+  <button id="lg-btn" class="lock-btn">Enter</button>
+  <div class="lock-note">Your nook &middot; private &amp; self-hosted</div>
 </div>
 
-<!-- ══ FIRST-RUN PASSWORD ══ -->
-<div id="v-setpw" class="screen hidden">
-  <div class="lockwrap">
-    <div class="monogram">⌘</div>
-    <div class="lockname">Set your password</div>
-    <div class="lockdim">first sign-in — choose your own (8+ characters)</div>
-    <div class="lockform">
-      <input id="sp-a" type="password" placeholder="new password">
-      <input id="sp-b" type="password" placeholder="repeat">
-      <button id="sp-go" class="btn-ink">Save &amp; continue</button>
-      <div id="sp-err" class="err"></div>
-    </div>
+<!-- ══ FORCED PASSWORD RESET ══ -->
+<div id="v-setpw" class="hidden" style="position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px">
+  <div class="mono-ring"><div class="mono-in"><span>NK</span></div></div>
+  <div class="wordmark">Set your passcode</div>
+  <div class="lock-sub">First sign-in &middot; choose your own (min 8)</div>
+  <div class="lock-fields">
+    <input id="sp-a" type="password" placeholder="new password">
+    <input id="sp-b" type="password" placeholder="repeat it">
+  </div>
+  <div id="sp-err" class="err"></div>
+  <button id="sp-btn" class="lock-btn">Save &amp; continue</button>
+</div>
+
+<!-- ══ SEARCH OVERLAY ══ -->
+<div id="v-search" class="hidden">
+  <div class="top">
+    <button class="x" id="sc-x">&times;</button>
+    <div class="wordmark" style="font-size:13px">&ldquo;NOOK&rdquo;</div>
+  </div>
+  <div class="wrap">
+    <div class="bar"><input id="sc-q" placeholder="Search everything" autocomplete="off"><div class="lens"></div></div>
+    <div class="rlabel" id="sc-label">Type to search</div>
+    <div id="sresults" class="nk-sc"></div>
   </div>
 </div>
 
 <!-- ══ APP ══ -->
 <div id="v-app" class="hidden">
-  <aside id="side">
-    <div class="brand"><span class="bmark">▚</span><span class="btext">Nook</span></div>
-    <nav id="nav"></nav>
-    <div class="sidefoot">
-      <button class="navitem" data-view="settings"><span class="ni">⚙</span><span class="nl">Settings</span></button>
-      <button class="navitem" id="lockbtn"><span class="ni">⏻</span><span class="nl">Lock</span></button>
+  <div id="veil"></div>
+  <aside id="side" class="nk-sc">
+    <div class="brand">&ldquo;NOOK&rdquo;</div>
+    <button class="searchbtn" id="open-search"><span>Search</span><span style="opacity:.7">&#8984;K</span></button>
+    <div id="nav"></div>
+    <div class="foot">
+      <button class="ghostbtn" id="theme-btn">Theme</button>
+      <button class="ghostbtn" id="logout">Sign out</button>
     </div>
   </aside>
-  <div id="veil"></div>
 
-  <main id="main">
-    <header id="bar">
-      <button id="burger">☰</button>
-      <h1 id="title">Home</h1>
-      <button id="searchbtn" title="search">⌕</button>
-      <span id="who"></span>
-    </header>
-
-    <div id="stage">
-
-      <!-- HOME / stream -->
-      <section id="w-home" class="view">
-        <div class="hero">
-          <div class="greet" id="greet">Good evening</div>
-          <div class="glance" id="glance"></div>
-        </div>
-        <div class="chips" id="homechips"></div>
-        <div id="stream"></div>
-        <div class="composer">
-          <label class="clip">📎<input type="file" id="h-file" hidden></label>
-          <input id="h-text" placeholder="a note, a link, a thought…" autocomplete="off">
-          <button id="h-send">→</button>
-        </div>
-      </section>
-
-      <!-- HOURS -->
-      <section id="w-hours" class="view hidden">
-        <div class="kpis">
-          <div class="card kpi"><span class="lbl">Logged today</span><b id="hr-today">0.0h</b></div>
-          <div class="card kpi accentcard"><span class="lbl">Earned today</span><b id="hr-earn">$0.00</b></div>
-        </div>
-        <div class="card clock">
-          <div id="tclock">00:00:00</div>
-          <div class="dim" id="tsub">not on the clock</div>
-          <div class="row">
-            <div class="combo" id="act-c"><input id="act" placeholder="activity / role" autocomplete="off"><div class="cmenu hidden"></div></div>
-            <div class="sel" id="orgsel"></div>
-          </div>
-          <label class="chk"><span class="box" id="deforg"></span> always assign to this org</label>
-          <input id="tnote" placeholder="note — managers see this on org sessions">
-          <button id="tgo" class="btn-ink big">Start</button>
-        </div>
-        <div class="card">
-          <div class="ch">Add past time</div>
-          <div class="row"><button class="pick" id="p-date" data-kind="date">pick date</button>
-            <input id="p-note" placeholder="note"></div>
-          <div class="row"><button class="pick" id="p-start" data-kind="time">start</button>
-            <button class="pick" id="p-end" data-kind="time">end</button>
-            <input id="p-break" type="text" inputmode="numeric" placeholder="break min"></div>
-          <div id="segs"></div>
-          <button id="addseg" class="btn-ghost">＋ break day into segments</button>
-          <button id="p-save" class="btn-ink">Add entry</button>
-        </div>
-        <div class="card">
-          <div class="ch">Income <span class="dim" id="ratelbl"></span></div>
-          <div class="seg" id="incseg">
-            <button data-g="w" class="on">Weekly</button><button data-g="2w">Biweekly</button><button data-g="m">Monthly</button>
-          </div>
-          <div id="income" class="list"></div>
-        </div>
-        <div class="card"><div class="ch">Sessions</div><div id="sessions" class="list"></div></div>
-      </section>
-
-      <!-- ARCHIVE -->
-      <section id="w-archive" class="view hidden">
-        <div class="crumbs" id="crumbs"></div>
-        <div id="files"></div>
-        <label class="fab">↑<input type="file" id="up" multiple hidden></label>
-      </section>
-
-      <!-- PHOTOS -->
-      <section id="w-photos" class="view hidden">
-        <div class="seg" id="phseg">
-          <button data-m="mine" class="on">Mine</button><button data-m="family">Family</button><button data-m="screen">Movies &amp; TV</button>
-        </div>
-        <div id="grid"></div>
-        <div id="screenpane" class="hidden">
-          <div class="card"><div class="ch">Jellyfin</div>
-            <p class="dim">Streaming with transcode, cast, subtitles.</p>
-            <a id="jf" class="btn-ink" target="_blank" rel="noopener">Open Jellyfin</a></div>
-          <div class="card"><div class="ch">Library</div><div id="lib" class="list"></div></div>
-        </div>
-      </section>
-
-      <!-- SHELF -->
-      <section id="w-shelf" class="view hidden">
-        <div class="seg" id="shseg">
-          <button data-s="books" class="on">Books</button><button data-s="music">Music</button>
-          <button data-s="audiobooks">Audiobooks</button><button data-s="podcasts">Podcasts</button>
-        </div>
-        <div id="shelf"></div>
-      </section>
-
-      <!-- REVIEW -->
-      <section id="w-review" class="view hidden"><div id="pending"></div></section>
-
-      <!-- JOURNAL -->
-      <section id="w-journal" class="view hidden">
-        <div id="j-list"></div>
-        <div id="j-edit" class="hidden">
-          <input id="j-title" placeholder="title">
-          <textarea id="j-body" placeholder="write…"></textarea>
-          <div class="row"><button id="j-save" class="btn-ink">Save</button>
-            <button id="j-del" class="btn-ghost danger hidden">Delete</button></div>
-        </div>
-        <button class="fab" id="j-new">✎</button>
-      </section>
-
-      <!-- SLEEP -->
-      <section id="w-sleep" class="view hidden">
-        <div class="card"><div class="ch">Recent sleep</div><div id="sleeplist" class="list"></div></div>
-        <div class="card"><div class="ch">Device sync</div>
-          <p class="dim">A key for the alarm puck. It POSTs to <code>/api/sleep/ingest</code> with header <code>X-Api-Key</code>.</p>
-          <button id="pk-key" class="btn-ink">Generate device key</button>
-          <code id="pk-out" class="keyout hidden"></code></div>
-      </section>
-
-      <!-- SETTINGS -->
-      <section id="w-settings" class="view hidden">
-        <div class="card profile">
-          <div class="avatar" id="avatar">–</div>
-          <div><div class="pname" id="pname"></div><div class="dim" id="prole"></div></div>
-        </div>
-
-        <div class="card">
-          <div class="ch">Surface</div>
-          <div class="seg" id="surfseg"><button data-v="flat">Flat</button><button data-v="soft">Soft</button><button data-v="glass">Glass</button></div>
-          <div class="ch mt">Paper</div>
-          <div class="seg" id="toneseg"><button data-v="warm">Warm</button><button data-v="neutral">Neutral</button><button data-v="cool">Cool</button></div>
-          <div class="ch mt">Light</div>
-          <div class="seg" id="modeseg"><button data-v="light">Day</button><button data-v="dark">Night</button></div>
-        </div>
-
-        <div class="card">
-          <div class="ch">Services</div>
-          <p class="dim">Pair what you use. Unpaired services stay out of your sidebar.</p>
-          <div id="svcs"></div>
-        </div>
-
-        <div class="card">
-          <div class="ch">Account</div>
-          <input id="pw-cur" type="password" placeholder="current password">
-          <div class="row"><input id="pw-new" type="password" placeholder="new password">
-            <button id="pw-go" class="btn-ink">Change</button></div>
-        </div>
-
-        <div class="card">
-          <div class="ch">Backups</div>
-          <p class="dim">Server snapshots of each app's data. Nightly automatic; manual any time.</p>
-          <div id="snaps"></div>
-        </div>
-
-        <div class="card hidden" id="admincard">
-          <div class="ch">Users</div>
-          <div class="row"><input id="nu-name" placeholder="username">
-            <input id="nu-pw" type="password" placeholder="temp password">
-            <button id="nu-go" class="btn-ink">Create</button></div>
-          <p class="dim">New users set their own password at first sign-in.</p>
-          <div id="users"></div>
-        </div>
-
-        <div class="card">
-          <div class="ch">Groups</div>
-          <div class="row"><input id="g-name" placeholder="new group">
-            <div class="sel" id="g-kind"></div>
-            <button id="g-go" class="btn-ink">Create</button></div>
-          <div id="groups"></div>
-          <div id="gdetail" class="hidden">
-            <div class="ch mt" id="gd-name"></div><div class="dim" id="gd-role"></div>
-            <button id="gd-files" class="btn-ghost">Open group files</button>
-            <div id="gd-add" class="row hidden"><input id="gm-u" placeholder="username">
-              <div class="sel" id="gm-r"></div><button id="gm-go" class="btn-ink">Add</button></div>
-            <div id="gd-work" class="list"></div>
-          </div>
-        </div>
-      </section>
-
+  <main>
+    <div class="topbar">
+      <button id="menu-btn">&#9776;</button>
+      <div class="tt" id="mtitle">Home</div>
     </div>
+
+    <!-- ═ HOME ═ -->
+    <section id="w-home" class="view rise">
+      <div class="colwrap" style="margin-bottom:20px">
+        <div class="herorow"><h2 class="hero" id="greeting">Hello.</h2><span>Here&rsquo;s your nook</span></div>
+        <div class="pins" id="pins"></div>
+      </div>
+      <div class="colwrap">
+        <div class="composebar">
+          <input id="cmp-quick" placeholder="Jot a thought…">
+          <button id="cmp-open">+</button>
+        </div>
+        <div class="hscroll nk-sc" id="cmp-chips" style="margin-top:10px"></div>
+        <div id="compose" class="hidden"></div>
+        <div class="hscroll nk-sc" id="feed-filters" style="margin:22px 0 4px"></div>
+        <div id="feed"></div>
+      </div>
+    </section>
+
+    <!-- ═ HOURS ═ -->
+    <section id="w-hours" class="view rise hidden" style="max-width:640px">
+      <div class="ringcard">
+        <div class="ringwrap">
+          <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="var(--panel2)" stroke-width="8"/>
+            <circle id="ring" cx="60" cy="60" r="52" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round" stroke-dasharray="327" stroke-dashoffset="327"/></svg>
+          <div class="ringmid"><div class="t" id="ring-time">0:00:00</div><div class="s" id="ring-pct">0% of 8h</div></div>
+        </div>
+        <div class="wtypes" id="wtypes"></div>
+        <input id="w-note" class="mini" style="margin-top:12px" placeholder="note (managers see this on org sessions)">
+        <button id="timer-btn" class="timerbtn">Start</button>
+      </div>
+
+      <div style="margin:22px 0"><div class="daystrip nk-sc" id="daystrip"></div></div>
+
+      <div class="stat2">
+        <div class="statcard"><div class="lbl">Logged today</div><div class="big" id="day-hours">0.0h</div></div>
+        <div class="statcard accent"><div class="lbl">Earned today</div><div class="big" id="day-earned">$0</div></div>
+      </div>
+
+      <div class="sgroup"><h3>Add past time</h3>
+        <div class="row" style="margin-bottom:8px">
+          <button class="mini dtp-btn" id="mw-date" data-kind="date" style="cursor:pointer">pick date</button>
+          <input id="mw-note2" class="mini" placeholder="note"></div>
+        <div class="row" style="margin-bottom:8px">
+          <button class="mini dtp-btn" id="mw-start" data-kind="time" style="cursor:pointer">start</button>
+          <button class="mini dtp-btn" id="mw-end" data-kind="time" style="cursor:pointer">end</button>
+          <input id="mw-break" class="mini" type="number" placeholder="break min"></div>
+        <button id="mw-save" class="sbtn" style="width:100%">Add entry</button>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <div class="hscroll" id="inc-seg" style="margin-bottom:10px"></div>
+        <div id="inclist"></div>
+      </div>
+      <div class="lbl" style="margin-bottom:10px">Recent sessions</div>
+      <div id="worklist"></div>
+    </section>
+
+    <!-- ═ ARCHIVE ═ -->
+    <section id="w-archive" class="view rise hidden">
+      <div class="uline"><input id="arch-q" placeholder="Search shows &amp; movies"><div class="lens"></div></div>
+      <div class="posters" id="posters"></div>
+    </section>
+
+    <!-- ═ PHOTOS ═ -->
+    <section id="w-photos" class="view rise hidden">
+      <div class="phead">
+        <div class="hscroll nk-sc" id="photo-jump" style="flex:1"></div>
+        <label class="addbtn">+ Add photos<input type="file" id="photo-add" accept="image/*" multiple hidden></label>
+      </div>
+      <div id="photo-groups"></div>
+    </section>
+
+    <!-- ═ SHELF ═ -->
+    <section id="w-shelf" class="view rise hidden">
+      <div class="hscroll nk-sc" id="shelf-seg" style="margin-bottom:18px"></div>
+      <div id="shelf"></div>
+      <div id="player" class="hidden"><div class="pt" id="player-t"></div><audio id="player-a" controls></audio></div>
+    </section>
+
+    <!-- ═ SLEEP ═ -->
+    <section id="w-sleep" class="view rise hidden" style="max-width:640px">
+      <div class="sgroup"><h3>Recent sleep</h3><div id="sleeplist"></div></div>
+      <div class="sgroup"><h3>Device sync</h3>
+        <p class="s" style="color:var(--dim);margin:0 0 12px">Key for the alarm puck &rarr; POST /api/sleep/ingest, header X-Api-Key.</p>
+        <button id="sleep-key" class="sbtn">Generate device key</button>
+        <div id="sleep-key-out" class="mini hidden" style="margin-top:10px;user-select:all;word-break:break-all"></div>
+      </div>
+    </section>
+
+    <!-- ═ JOURNAL ═ -->
+    <section id="w-journal" class="view rise hidden" style="max-width:680px">
+      <div class="row" style="justify-content:space-between;margin-bottom:16px">
+        <div class="lbl">Journal &middot; private</div>
+        <button id="j-new" class="sbtn">+ Write</button>
+      </div>
+      <div id="j-list"></div>
+      <div id="j-editor" class="hidden">
+        <input id="j-title" class="mini" placeholder="title" style="font-size:17px;margin-bottom:10px">
+        <textarea id="j-body" class="mini" placeholder="write&hellip;" style="min-height:50vh;line-height:1.7;resize:vertical"></textarea>
+        <div class="row" style="margin-top:10px"><button id="j-save" class="sbtn">Save</button>
+          <button id="j-del" class="sbtn warn hidden">Delete</button></div>
+      </div>
+    </section>
+
+    <!-- ═ REVIEW (pending) ═ -->
+    <section id="w-review" class="view rise hidden" style="max-width:680px">
+      <div class="lbl" style="margin-bottom:14px">Files awaiting review</div>
+      <div id="pendinglist"></div>
+    </section>
+
+    <!-- ═ SETTINGS ═ -->
+    <section id="w-settings" class="view rise hidden">
+      <div class="profile"><div class="avatar" id="s-avatar">?</div>
+        <div><div class="n" id="s-name">&mdash;</div><div class="r" id="s-role">member</div></div></div>
+
+      <div class="sgroup"><h3>Appearance</h3>
+        <div class="srow"><div class="g"><div class="t">Theme</div></div>
+          <div class="pickrow" id="pick-theme"></div></div>
+        <div class="srow"><div class="g"><div class="t">Paper tone</div></div>
+          <div class="pickrow" id="pick-tone"></div></div>
+        <div class="srow"><div class="g"><div class="t">Surface</div></div>
+          <div class="pickrow" id="pick-surface"></div></div>
+      </div>
+
+      <div class="sgroup"><h3>Account</h3>
+        <div class="srow"><div class="g"><div class="t">Change password</div></div></div>
+        <div class="srow"><input id="cp-cur" type="password" placeholder="current"><input id="cp-new" type="password" placeholder="new"><button id="cp-save" class="sbtn">Change</button></div>
+      </div>
+
+      <div class="sgroup"><h3>Services</h3>
+        <p class="s" style="color:var(--dim);margin:0 0 6px">Pair the modules you use. Unpaired services stay out of your sidebar.</p>
+        <div id="svc-list"></div>
+      </div>
+
+      <div class="sgroup"><h3>Backups</h3>
+        <p class="s" style="color:var(--dim);margin:0 0 6px">Server snapshots of each paired app's data. Nightly automatic; manual any time.</p>
+        <div id="snaplist"></div>
+      </div>
+
+      <div class="sgroup hidden" id="admin-group"><h3>Admin</h3>
+        <div class="srow"><input id="au-name" type="text" placeholder="username"><input id="au-pass" type="password" placeholder="temp password"><button id="au-add" class="sbtn">Create</button></div>
+        <p class="s" style="color:var(--dim)">New users set their own password at first sign-in.</p>
+        <div id="userlist"></div>
+      </div>
+    </section>
   </main>
 </div>
 
-<!-- ══ SEARCH (shoeciety) ══ -->
-<div id="v-search" class="screen hidden searchskin">
-  <header><button id="s-close">✕</button><span class="vbrand">"NOOK"</span></header>
-  <div class="swrap">
-    <div class="sfield"><input id="s-q" placeholder="search the archive" autocomplete="off" spellcheck="false"><span>⌕</span></div>
-    <hr>
-    <div class="slabel">Results</div>
-    <div id="s-out"></div>
-  </div>
-</div>
-
-<!-- ══ DROP OVERLAY ══ -->
-<div id="drop" class="hidden">
-  <div class="dz" id="dz-orig"><h2>Drop files here</h2><p>original quality → scanned → your archive</p></div>
-  <div class="dz" id="dz-quick"><h2>Drop photos here</h2><p>quick send — compressed</p></div>
-</div>
-
-<div id="lightbox" class="hidden"><img id="lbimg" alt=""></div>
+<div id="lightbox" class="hidden"><img id="lb-img"></div>
 <script src="app.js"></script>
 </body>
 </html>
