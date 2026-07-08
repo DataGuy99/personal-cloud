@@ -27,6 +27,16 @@
                           targets — see docs/DECISIONS.md)
 ```
 
+## UI: Nook (2026-07)
+Vanilla PWA, no build step. Sidebar nav (collapsible; mobile drawer).
+Views map 1:1 onto tested endpoints:
+  Home→dump feed · Archive→copyparty browse · Photos→media grid + Jellyfin
+  Shelf→books/music via copyparty ?ls · Hours→work · Review→quarantine
+  Journal, Sleep, Settings (services pairing, users, groups, backups, theme)
+Sidebar entries for Workout / Meal Prep / Contractor open the ported apps
+under /apps/<name>/. Theme = paper tone × light/dark × surface, persisted
+per-user in /api/kv/nook.
+
 ## Identity model
 - `users` table owns identity. Real password → pbkdf2 hash (API login).
 - Each user gets a random `file_token` = their copyparty password.

@@ -1,846 +1,834 @@
-/* CloudDome PWA v2 — rail navigation, service pairing, kulikéun dump */
-const CP = `${location.protocol}//${location.hostname}:3923`;
-let ME = null, cwd = null, MYGROUPS = [], SVC = [], PEERS = [], curGroup = null,
-    curEntry = null, curChat = null, curPeer = null, curView = "dump", tInterval = null;
+/* Nook — CloudDome PWA. Vanilla, no build step, no CDN runtime.
+   Theme engine ported from the Nook design prototype (tone × light/dark × surface).
+   Data comes from the platform API (/api/*) and copyparty (:3923). */
 
+const CP = `${location.protocol}//${location.hostname}:3923`;
+
+/* ── theme (exact tokens from the Nook prototype) ── */
+const TONE = {
+  warm:    { light:{bg:'#ece8e0',panel:'#f4f1ea',panel2:'#e6e1d7',ink:'#23201a',dim:'#8b8579',line:'#d6d0c3'},
+             dark: {bg:'#16140f',panel:'#1e1b15',panel2:'#26221b',ink:'#e9e4d8',dim:'#8a8474',line:'#332e26'} },
+  neutral: { light:{bg:'#eae9e6',panel:'#f3f2ef',panel2:'#e3e2de',ink:'#20201e',dim:'#86847f',line:'#d3d2cd'},
+             dark: {bg:'#151512',panel:'#1d1d1a',panel2:'#252521',ink:'#e7e6e1',dim:'#87857e',line:'#302f2b'} },
+  cool:    { light:{bg:'#e8eaec',panel:'#f1f3f4',panel2:'#e0e3e5',ink:'#1e2226',dim:'#7f858b',line:'#d0d4d7'},
+             dark: {bg:'#131517',panel:'#1b1e20',panel2:'#232729',ink:'#e3e7ea',dim:'#828990',line:'#2c3033'} },
+};
+const ACCENT = ['#6f7d55', '#aebd88'];   // [light, dark]
+const UI = { tone: 'warm', mode: 'dark', surface: 'flat' };
+
+function surfaceVars(dark, surf) {
+  if (surf === 'soft') return { card:'var(--panel)', cardBd:'1px solid transparent',
+    sh: dark ? '5px 5px 13px rgba(0,0,0,.5), -5px -5px 13px rgba(255,255,255,.035)'
+             : '6px 6px 15px rgba(120,108,86,.18), -6px -6px 15px rgba(255,255,255,.8)', bdrop:'none' };
+  if (surf === 'glass') return { card: dark ? 'rgba(38,34,27,.5)' : 'rgba(246,244,239,.5)',
+    cardBd: '1px solid ' + (dark ? 'rgba(255,255,255,.1)' : 'rgba(255,255,255,.55)'),
+    sh:'0 12px 36px rgba(0,0,0,.16)', bdrop:'blur(14px) saturate(1.25)' };
+  return { card:'var(--panel)', cardBd:'1px solid var(--line)', sh:'none', bdrop:'none' };
+}
+function applyTheme() {
+  const dark = UI.mode === 'dark';
+  const t = (TONE[UI.tone] || TONE.warm)[dark ? 'dark' : 'light'];
+  const accent = dark ? ACCENT[1] : ACCENT[0];
+  const sv = surfaceVars(dark, UI.surface);
+  const r = document.documentElement.style;
+  Object.entries(t).forEach(([k, v]) => r.setProperty(`--${k}`, v));
+  r.setProperty('--accent', accent);
+  r.setProperty('--hl', `color-mix(in oklab, ${accent} ${dark ? 28 : 24}%, ${t.panel})`);
+  Object.entries(sv).forEach(([k, v]) => r.setProperty(`--${k}`, v));
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.bg);
+  ['surf', 'tone', 'mode'].forEach(g => {
+    const val = { surf: UI.surface, tone: UI.tone, mode: UI.mode }[g];
+    document.querySelectorAll(`#${g}seg button`).forEach(b => b.classList.toggle('on', b.dataset.v === val));
+  });
+}
+async function saveUI() {
+  try { localStorage.setItem('nook-ui', JSON.stringify(UI)); } catch {}
+  api('/api/kv/nook', { method:'PUT', body: JSON.stringify({ ui: JSON.stringify(UI) }) }).catch(() => {});
+}
+async function loadUI() {
+  try { Object.assign(UI, JSON.parse(localStorage.getItem('nook-ui') || '{}')); } catch {}
+  applyTheme();
+  try {
+    const kv = await api('/api/kv/nook');
+    if (kv.ui) { Object.assign(UI, JSON.parse(kv.ui)); applyTheme(); }
+  } catch {}
+}
+
+/* ── util ── */
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
-  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const toast = (m) => { const t = document.createElement("div"); t.className = "toast";
-  t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); };
+const $$ = (s) => [...document.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toast = (m) => { const t = document.createElement('div'); t.className = 'toast';
+  t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 2500); };
 const api = async (path, opts = {}) => {
-  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
 };
-const fmtSize = (b) => b > 1e9 ? (b/1e9).toFixed(1)+" GB" : b > 1e6 ? (b/1e6).toFixed(1)+" MB"
-  : b > 1e3 ? (b/1e3).toFixed(0)+" KB" : b+" B";
-const fmtDay = (ts) => new Date(ts*1000).toLocaleDateString(undefined,{month:"short",day:"numeric"});
-const fmtDT = (ts) => new Date(ts*1000).toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
-const hrs = (a,b) => (((b || Date.now()/1000) - a) / 3600);
+const size = (b) => b > 1e9 ? (b/1e9).toFixed(1)+' GB' : b > 1e6 ? (b/1e6).toFixed(1)+' MB'
+  : b > 1e3 ? (b/1e3).toFixed(0)+' KB' : b+' B';
+const day = (ts) => new Date(ts*1000).toLocaleDateString(undefined, {month:'short', day:'numeric'});
+const dt  = (ts) => new Date(ts*1000).toLocaleString(undefined, {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+const hrs = (a, b) => (((b || Date.now()/1000) - a) / 3600);
+const slug = (n) => n.toLowerCase().replace(/ /g, '-');
+const ficon = (n) => /\.(jpe?g|png|gif|webp|heic)$/i.test(n) ? '▣'
+  : /\.(mp4|mkv|mov|avi|webm)$/i.test(n) ? '▶' : /\.(mp3|flac|ogg|m4a|wav)$/i.test(n) ? '♪'
+  : /\.(pdf|docx?|txt|md|epub)$/i.test(n) ? '▤' : '◫';
+
+/* ── state ── */
+let ME = null, SVC = [], GROUPS = [], PEERS = [], cwd = null,
+    chat = null, peer = null, view = 'home', tick = null, WSESS = [], curJ = null, curG = null;
 
 /* ── auth ── */
 async function boot() {
-  try { ME = await api("/api/me"); postLogin(); }
-  catch { $("#login-view").classList.remove("hidden"); }
+  try { ME = await api('/api/me'); await enter(); }
+  catch { $('#v-login').classList.remove('hidden'); }
 }
-$("#login-btn").onclick = async () => {
+$('#lg-go').onclick = async () => {
   try {
-    ME = await api("/api/login", { method:"POST", body: JSON.stringify({
-      username: $("#login-user").value.trim(), password: $("#login-pass").value }) });
-    $("#login-view").classList.add("hidden"); postLogin();
-  } catch { $("#login-err").textContent = "wrong username or password"; }
+    ME = await api('/api/login', { method:'POST', body: JSON.stringify({
+      username: $('#lg-user').value.trim(), password: $('#lg-pass').value }) });
+    $('#v-login').classList.add('hidden');
+    if (ME.must_change_pw) return $('#v-setpw').classList.remove('hidden');
+    await enter();
+  } catch { $('#lg-err').textContent = 'wrong user or password'; }
 };
-$("#login-pass").addEventListener("keydown", e => { if (e.key === "Enter") $("#login-btn").click(); });
-function postLogin() {
-  if (ME.must_change_pw) { $("#pwreset-view").classList.remove("hidden"); return; }
-  enter();
-}
-$("#pw-set").onclick = async () => {
-  const a = $("#pw-new").value, b = $("#pw-new2").value;
-  if (a !== b) { $("#pw-err").textContent = "passwords don't match"; return; }
+$('#lg-pass').addEventListener('keydown', e => e.key === 'Enter' && $('#lg-go').click());
+$('#sp-go').onclick = async () => {
+  const a = $('#sp-a').value, b = $('#sp-b').value;
+  if (a !== b) return $('#sp-err').textContent = "passwords don't match";
   try {
-    await api("/api/password", { method:"POST", body: JSON.stringify({ new_password: a }) });
-    ME.must_change_pw = false; $("#pwreset-view").classList.add("hidden"); enter();
-  } catch (e) { $("#pw-err").textContent = e.message; }
+    await api('/api/password', { method:'POST', body: JSON.stringify({ new_password: a }) });
+    ME.must_change_pw = false; $('#v-setpw').classList.add('hidden'); await enter();
+  } catch (e) { $('#sp-err').textContent = e.message; }
 };
+$('#lockbtn').onclick = async () => { await api('/api/logout', { method:'POST' }); location.reload(); };
 
 async function enter() {
   document.cookie = `cppwd=${ME.file_token}; path=/; max-age=2592000`;
-  $("#app-view").classList.remove("hidden");
-  $("#whoami").textContent = ME.username;
+  $('#v-app').classList.remove('hidden');
+  $('#who').textContent = ME.username;
+  $('#avatar').textContent = ME.username[0];
+  $('#pname').textContent = ME.username;
+  $('#prole').textContent = ME.is_admin ? 'administrator' : 'member';
   cwd = `/vault/${ME.username}`;
-  MYGROUPS = await api("/api/groups");
-  SVC = await api("/api/services");
-  buildRail(); show("dump");
-  refreshBadge(); setInterval(refreshBadge, 15000);
+  GROUPS = await api('/api/groups').catch(() => []);
+  SVC = await api('/api/services').catch(() => []);
+  await loadUI();
+  buildNav(); show('home');
+  badge(); setInterval(badge, 15000);
 }
 
-/* ── rail & routing ── */
-const CORE = [
-  { v:"dump", i:"💬", l:"Dump" }, { v:"files", i:"📁", l:"Files" },
-  { v:"media", i:"🎞", l:"Media" }, { v:"dash", i:"📊", l:"Dash" }];
-const SVCMETA = { work:{i:"⏱",l:"Work"}, fitness:{i:"💪",l:"Fitness"}, meals:{i:"🍽",l:"Meals"},
-  sleep:{i:"😴",l:"Sleep"}, journal:{i:"📓",l:"Journal"} };
-const SVCAPP = { fitness:"workout-gen", meals:"meal-prep" };   // paired → ported app
-function buildRail() {
+/* ── nav ── */
+const CORE = [['home','Home','◈'], ['archive','Archive','▤'], ['photos','Photos','▣'], ['shelf','Shelf','▥']];
+const SVCNAV = { work:['hours','Hours','◷'], fitness:['workout','Workout','◍'], meals:['meal','Meal Prep','◐'],
+                 sleep:['sleep','Sleep','☾'], journal:['journal','Journal','✎'] };
+const SVCAPP = { workout:'workout-gen', meal:'meal-prep', contractor:'contract-manager' };
+
+function buildNav() {
   const paired = SVC.filter(s => s.enabled).map(s => s.service);
-  const items = [...CORE,
-    ...paired.map(s => ({ v:s, i:SVCMETA[s].i, l:SVCMETA[s].l })),
-    { v:"pending", i:"🛡️", l:"Pending", badge:true }];
-  const APPS = [ { n:"contract-manager", i:"📋", l:"Contracts" } ];
-  $("#rail-items").innerHTML = items.map(it =>
-    `<button class="ritem" data-view="${it.v}"><span class="ri">${it.i}</span>
-     <span class="rl">${it.l}</span>${it.badge ? '<em class="badge hidden" id="pending-badge"></em>' : ""}</button>`).join("")
-    + `<div style="height:1px;background:#1e2a36;margin:6px 8px"></div>`
-    + APPS.map(a => `<button class="ritem" data-app="${a.n}"><span class="ri">${a.i}</span>
-       <span class="rl">${a.l}</span></button>`).join("");
-  document.querySelectorAll(".ritem[data-app]").forEach(b =>
-    b.onclick = () => { location.href = `/apps/${b.dataset.app}/`; });
-  document.querySelectorAll(".ritem:not([data-app])").forEach(b => b.onclick = () => {
+  const items = [...CORE];
+  paired.forEach(s => SVCNAV[s] && items.push(SVCNAV[s]));
+  items.push(['contractor','Contractor','◰'], ['review','Review','◇']);
+  $('#nav').innerHTML = items.map(([v, l, i]) =>
+    `<button class="navitem" data-view="${v}"><span class="ni">${i}</span><span class="nl">${l}</span>${
+      v === 'review' ? '<em class="badge hidden" id="pbadge"></em>' : ''}</button>`).join('');
+  $$('.navitem[data-view]').forEach(b => b.onclick = () => {
     const v = b.dataset.view;
-    if (v === "journal") { openJournal(); railClose(); return; }
-    if (SVCAPP[v]) { location.href = `/apps/${SVCAPP[v]}/`; return; }
-    show(v); railClose();
+    if (SVCAPP[v]) return location.href = `/apps/${SVCAPP[v]}/`;
+    show(v); closeNav();
   });
 }
+const TITLES = { home:'Home', archive:'Archive', photos:'Photos', shelf:'Shelf', hours:'Hours',
+  sleep:'Sleep', journal:'Journal', review:'Review', settings:'Settings' };
 function show(v) {
-  curView = v;
-  document.querySelectorAll(".vw").forEach(x => x.classList.add("hidden"));
-  const el = $(`#view-${v}`); if (el) el.classList.remove("hidden");
-  document.querySelectorAll(".ritem").forEach(b =>
-    b.classList.toggle("active", b.dataset.view === v));
-  $("#view-title").textContent = ({ dump:"Dump", files:"Files", media:"Media", dash:"Dash",
-    work:"Work", sleep:"Sleep", pending:"Pending", settings:"Settings" })[v] || v;
-  $("#mob-back").classList.toggle("show", v !== "dump");
-  ({ dump:loadDump, files:loadFiles, media:loadMedia, dash:loadDash, work:loadWork,
-     sleep:loadSleep, pending:loadPending, settings:loadSettings })[v]?.();
+  view = v;
+  $$('.view').forEach(x => x.classList.add('hidden'));
+  $(`#w-${v}`)?.classList.remove('hidden');
+  $$('.navitem').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  $('#title').textContent = TITLES[v] || v;
+  ({ home:loadHome, archive:loadFiles, photos:loadPhotos, shelf:loadShelf, hours:loadHours,
+     sleep:loadSleep, journal:loadJournal, review:loadReview, settings:loadSettings })[v]?.();
 }
-$("#rail-toggle").onclick = () => $("#rail").classList.toggle("open");
-$("#mob-menu").onclick = () => { $("#rail").classList.add("open"); $("#railveil").classList.add("on"); };
-$("#railveil").onclick = railClose;
-$("#mob-back").onclick = () => show("dump");
-function railClose() { if (matchMedia("(max-width:700px)").matches)
-  { $("#rail").classList.remove("open"); $("#railveil").classList.remove("on"); } }
+$('#burger').onclick = () => { $('#side').classList.add('open'); $('#veil').classList.add('on'); };
+$('#veil').onclick = closeNav;
+$('.brand').onclick = () => matchMedia('(max-width:760px)').matches ? closeNav() : $('#side').classList.toggle('mini');
+function closeNav() { $('#side').classList.remove('open'); $('#veil').classList.remove('on'); }
 
-/* ── dump ── */
-function chatSlug(n) { return n.toLowerCase().replace(/ /g, "-"); }
-async function loadDump() {
-  PEERS = await api("/api/dump/peers").catch(() => PEERS);
-  const pills = [{ id:null, name:"💾 My dump" }, ...MYGROUPS.map(g => ({ id:g.id, name:g.name })),
-    ...PEERS.map(u => ({ peer:u, name:u }))];
-  $("#chatpills").innerHTML = pills.map(p =>
-    `<button ${p.peer ? `data-peer="${esc(p.peer)}" class="dm ${curPeer === p.peer ? "active" : ""}"`
-      : `data-gid="${p.id ?? ""}" class="${!curPeer && (p.id ?? null) === curChat ? "active" : ""}"`}>${esc(p.name)}</button>`).join("");
-  document.querySelectorAll("#chatpills button").forEach(b => b.onclick = () => {
-    if (b.dataset.peer) { curPeer = b.dataset.peer; curChat = null; }
-    else { curPeer = null; curChat = b.dataset.gid ? +b.dataset.gid : null; }
-    loadDump(); });
-  const q = curPeer ? `?peer=${encodeURIComponent(curPeer)}` : curChat ? `?group_id=${curChat}` : "";
+/* ══ HOME (dump stream) ══ */
+async function loadHome() {
+  const h = new Date().getHours();
+  $('#greet').textContent = h < 5 ? 'Still up' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  api('/api/insights/today').then(i => {
+    $('#glance').innerHTML = i.note ? `<div class="pin dim">${esc(i.note)}</div>` :
+      `<div class="pin">Burn<b>~${i.est_total_burn_kcal}</b></div>
+       <div class="pin">Intake<b>${i.intake_kcal}</b></div>
+       <div class="pin">Hours<b>${i.work_hours}h</b></div>
+       ${i.earnings ? `<div class="pin">Earned<b>$${i.earnings}</b></div>` : ''}`;
+  }).catch(() => {});
+
+  PEERS = await api('/api/dump/peers').catch(() => PEERS);
+  const chips = [{ id:null, n:'My dump' }, ...GROUPS.map(g => ({ id:g.id, n:g.name })),
+                 ...PEERS.map(u => ({ peer:u, n:'@'+u }))];
+  $('#homechips').innerHTML = chips.map(c => c.peer
+    ? `<button data-peer="${esc(c.peer)}" class="${peer===c.peer?'on':''}">${esc(c.n)}</button>`
+    : `<button data-gid="${c.id ?? ''}" class="${!peer && (c.id ?? null)===chat ? 'on':''}">${esc(c.n)}</button>`).join('');
+  $$('#homechips button').forEach(b => b.onclick = () => {
+    if (b.dataset.peer) { peer = b.dataset.peer; chat = null; }
+    else { peer = null; chat = b.dataset.gid ? +b.dataset.gid : null; }
+    loadHome();
+  });
+
+  const q = peer ? `?peer=${encodeURIComponent(peer)}` : chat ? `?group_id=${chat}` : '';
   const items = await api(`/api/dump${q}`);
-  $("#dumpfeed").innerHTML = items.map(bubbleHtml).join("") ||
-    `<div class="empty">nothing here — drop something 💾</div>`;
-  document.querySelectorAll(".bubble .del").forEach(b => b.onclick = async () => {
-    await api(`/api/dump/${b.dataset.id}`, { method:"DELETE" }); loadDump(); });
-  wireMedia();
-  document.querySelectorAll(".sh-save").forEach(b => b.onclick = async () => {
+  $('#stream').innerHTML = items.map(entryHtml).join('') || `<div class="empty">nothing here yet</div>`;
+  wireStream();
+  $('#stream').scrollTop = $('#stream').scrollHeight;
+}
+function entryHtml(m) {
+  const mine = m.username === ME.username;
+  const who = (!mine && (chat || peer)) ? `<span class="who">${esc(m.username)}</span>` : '';
+  let meta = {}; try { meta = JSON.parse(m.meta || '{}'); } catch {}
+  const blur = meta.sensitive ? ' blur' : '';
+  const named = meta.showname !== false;
+  let body;
+  if (m.kind === 'link') body = `<a href="${esc(m.content)}" target="_blank" rel="noopener">${esc(m.content)}</a>`;
+  else if (m.kind === 'file') {
+    const url = `${CP}${encodeURI(m.file_path)}?pw=${ME.file_token}`;
+    const nm = named ? `<div class="fchip"><span>${esc(m.content || '')}</span></div>` : '';
+    if (/\.(jpe?g|png|gif|webp)$/i.test(m.file_path))
+      body = `<img class="media${blur}" src="${url}" data-url="${url}" alt="" onerror="this.outerHTML='▤ scanning…'">${nm}`;
+    else if (/\.(mp4|webm|mov|m4v)$/i.test(m.file_path))
+      body = `<video class="media vid${blur}" src="${url}" muted loop playsinline preload="metadata"></video>${nm}`;
+    else body = `<a class="fchip" href="${url}" target="_blank" rel="noopener"><span class="fi">${ficon(m.file_path)}</span>
+      <span>${esc(m.content || m.file_path.split('/').pop())}</span></a>`;
+  } else if (m.kind === 'share') {
+    let p = {}; try { p = JSON.parse(m.content); } catch {}
+    body = `<div class="sharecard"><div class="st">${esc(p.title || p.type || 'shared item')}</div>
+      <div class="ss">from ${esc(p.app || '?')}</div>
+      <button class="act shsave" data-json='${esc(m.content)}'>Save to my ${esc(p.app || 'apps')}</button></div>`;
+  } else body = esc(m.content);
+  const t = new Date(m.created_at*1000).toLocaleTimeString(undefined, {hour:'2-digit',minute:'2-digit'});
+  return `<div class="entry ${mine?'mine':'theirs'}" data-id="${m.id}" data-mine="${mine?1:0}"
+    data-kind="${m.kind}" data-sens="${meta.sensitive?1:0}" data-name="${named?1:0}">${who}${body}<span class="when">${t}</span></div>`;
+}
+let vobs = null;
+function wireStream() {
+  vobs?.disconnect();
+  vobs = new IntersectionObserver(es => es.forEach(e => {
+    if (e.target.classList.contains('blur')) return e.target.pause();
+    e.isIntersecting ? e.target.play().catch(()=>{}) : e.target.pause();
+  }), { threshold: 0.5 });
+  $$('.vid').forEach(v => vobs.observe(v));
+  $$('.media.blur').forEach(el => el.onclick = () => {
+    el.classList.toggle('blur');
+    if (el.tagName === 'VIDEO') el.classList.contains('blur') ? el.pause() : el.play().catch(()=>{});
+  });
+  $$('img.media:not(.blur)').forEach(el => el.onclick = () => openLb(el.dataset.url));
+  $$('.shsave').forEach(b => b.onclick = async () => {
     let p = {}; try { p = JSON.parse(b.dataset.json); } catch {}
     if (!p.app) return;
-    await api(`/api/kv/${p.app}`, { method:"PUT", body: JSON.stringify({
-      ["inbox_" + Date.now()]: JSON.stringify(p) }) });
-    toast(`saved — open ${p.app} and import from inbox/backup`); });
-  const f = $("#dumpfeed"); f.scrollTop = f.scrollHeight;
-}
-function bubbleHtml(m) {
-  const mine = m.username === ME.username;
-  const who = (!mine && (curChat || curPeer)) ? `<span class="who">${esc(m.username)}</span>` : "";
-  let meta = {}; try { meta = JSON.parse(m.meta || "{}"); } catch {}
-  const blur = meta.sensitive ? " blur" : "";
-  let body;
-  if (m.kind === "link") body = `<a href="${esc(m.content)}" target="_blank">${esc(m.content)}</a>`;
-  else if (m.kind === "file") {
-    const url = `${CP}${encodeURI(m.file_path)}?pw=${ME.file_token}`;
-    const nameLine = meta.showname === false ? "" :
-      `<div class="fchip"><span>${esc(m.content || "")}</span></div>`;
-    if (/\.(jpe?g|png|gif|webp)$/i.test(m.file_path))
-      body = `<img class="dmedia${blur}" src="${url}" data-url="${url}"
-        onerror="this.outerHTML='📄 scanning…'">${nameLine}`;
-    else if (/\.(mp4|webm|mov|m4v)$/i.test(m.file_path))
-      body = `<video class="dmedia dvid${blur}" src="${url}" muted loop playsinline
-        preload="metadata"></video>${nameLine}`;
-    else
-      body = `<a href="${url}" target="_blank" class="fchip"><span class="fico">${icon(m.file_path)}</span>
-        <span>${esc(m.content || m.file_path.split("/").pop())}</span></a>`;
-  } else if (m.kind === "share") {
-    let p = {}; try { p = JSON.parse(m.content); } catch {}
-    body = `<div class="share-card"><div class="st">${p.type === "workout" ? "🏋️" : p.type === "recipe" || p.type === "meal" ? "🥘" : "📦"} ${esc(p.title || p.type || "shared item")}</div>
-      <div class="ss">from ${esc(p.app || "?")}</div>
-      <button class="sh-save" data-json='${esc(m.content)}'>Save to my ${esc(p.app || "apps")}</button></div>`;
-  } else body = esc(m.content);
-  const del = mine ? `<button class="del" data-id="${m.id}">✕</button>` : "";
-  const t = new Date(m.created_at*1000).toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"});
-  return `<div class="bubble ${mine ? "mine" : "theirs"}" data-id="${m.id}"
-    data-mine="${mine ? 1 : 0}" data-kind="${m.kind}" data-sens="${meta.sensitive ? 1 : 0}"
-    data-name="${meta.showname === false ? 0 : 1}">${del}${who}${body}<span class="when">${t}</span></div>`;
-}
-$("#dump-send").onclick = sendDump;
-$("#dump-text").addEventListener("keydown", e => { if (e.key === "Enter") sendDump(); });
-async function sendDump() {
-  const content = $("#dump-text").value.trim();
-  if (!content) return;
-  await api("/api/dump", { method:"POST", body: JSON.stringify({
-    content, group_id: curChat, to_username: curPeer }) });
-  $("#dump-text").value = ""; loadDump();
-}
-$("#dm-open").onclick = async () => {
-  const u = $("#dm-user").value.trim().replace(/^@/, "");
-  if (!u) return;
-  curPeer = u; curChat = null; $("#dm-user").value = "";
-  if (!PEERS.includes(u)) PEERS.push(u);
-  loadDump();
-};
-$("#dump-attach").onchange = async (e) => {
-  const f = e.target.files[0]; if (!f) return;
-  await dumpUpload(f); e.target.value = "";
-};
-
-let vidObs = null;
-function wireMedia() {
-  vidObs?.disconnect();
-  vidObs = new IntersectionObserver(es => es.forEach(e => {
-    if (e.target.classList.contains("blur")) return e.target.pause();
-    e.isIntersecting ? e.target.play().catch(() => {}) : e.target.pause();
-  }), { threshold: 0.5 });
-  document.querySelectorAll(".dvid").forEach(v => vidObs.observe(v));
-  document.querySelectorAll(".dmedia.blur").forEach(el => el.onclick = () => {
-    el.classList.toggle("blur");
-    if (el.tagName === "VIDEO") el.classList.contains("blur") ? el.pause() : el.play().catch(() => {});
+    await api(`/api/kv/${p.app}`, { method:'PUT', body: JSON.stringify({ ['inbox_'+Date.now()]: JSON.stringify(p) }) });
+    toast(`saved — open ${p.app} and import from inbox`);
   });
-  document.querySelectorAll(".dmedia:not(.blur)").forEach(el => {
-    if (el.tagName === "IMG") el.onclick = () => window.open(el.dataset.url, "_blank");
-  });
-  document.querySelectorAll(".bubble").forEach(b => {
-    b.oncontextmenu = (e) => { e.preventDefault(); bubbleMenu(b, e.clientX, e.clientY); };
+  $$('.entry').forEach(e => {
+    e.oncontextmenu = (ev) => { ev.preventDefault(); ctxMenu(e, ev.clientX, ev.clientY); };
     let lp;
-    b.addEventListener("touchstart", () => lp = setTimeout(() =>
-      bubbleMenu(b, innerWidth / 2 - 90, innerHeight / 2), 550), { passive: true });
-    ["touchend", "touchmove"].forEach(ev => b.addEventListener(ev, () => clearTimeout(lp)));
+    e.addEventListener('touchstart', () => lp = setTimeout(() =>
+      ctxMenu(e, innerWidth/2 - 92, innerHeight/2), 550), { passive:true });
+    ['touchend','touchmove'].forEach(v => e.addEventListener(v, () => clearTimeout(lp)));
   });
 }
-function bubbleMenu(b, x, y) {
-  document.querySelectorAll(".ctxmenu").forEach(m => m.remove());
-  const mine = b.dataset.mine === "1", isFile = b.dataset.kind === "file";
-  const sens = b.dataset.sens === "1", named = b.dataset.name === "1";
-  const m = document.createElement("div"); m.className = "ctxmenu";
-  m.style.left = Math.min(x, innerWidth - 190) + "px";
-  m.style.top = Math.min(y, innerHeight - 200) + "px";
-  const items = [];
-  if (isFile) items.push(["↗ open", () => b.querySelector("[data-url],video,a")?.click?.()]);
-  if (mine && isFile) items.push(
-    [sens ? "👁 unmark sensitive" : "🙈 mark sensitive",
-      () => setMeta(b.dataset.id, { sensitive: !sens, showname: named })],
-    [named ? "🏷 hide filename" : "🏷 show filename",
-      () => setMeta(b.dataset.id, { sensitive: sens, showname: !named })]);
-  if (mine) items.push(["🗑 delete", async () => {
-    await api(`/api/dump/${b.dataset.id}`, { method: "DELETE" }); loadDump(); }]);
-  m.innerHTML = items.map(([l], i) => `<div class="ctx-opt" data-i="${i}">${l}</div>`).join("");
-  m.querySelectorAll(".ctx-opt").forEach(o => o.onclick = () => { m.remove(); items[+o.dataset.i][1](); });
+function ctxMenu(e, x, y) {
+  $$('.ctx').forEach(m => m.remove());
+  const mine = e.dataset.mine === '1', file = e.dataset.kind === 'file';
+  const sens = e.dataset.sens === '1', named = e.dataset.name === '1';
+  const acts = [];
+  if (file) acts.push(['↗  open', () => e.querySelector('[data-url],video,a.fchip')?.click?.()]);
+  if (mine && file) acts.push(
+    [sens ? '◉  unmark sensitive' : '◌  mark sensitive', () => setMeta(e.dataset.id, { sensitive:!sens, showname:named })],
+    [named ? '▢  hide filename' : '▣  show filename', () => setMeta(e.dataset.id, { sensitive:sens, showname:!named })]);
+  if (mine) acts.push(['✕  delete', async () => { await api(`/api/dump/${e.dataset.id}`, {method:'DELETE'}); loadHome(); }]);
+  if (!acts.length) return;
+  const m = document.createElement('div'); m.className = 'ctx';
+  m.style.left = Math.min(x, innerWidth-196)+'px'; m.style.top = Math.min(y, innerHeight-200)+'px';
+  m.innerHTML = acts.map(([l], i) => `<div data-i="${i}">${l}</div>`).join('');
+  m.querySelectorAll('div').forEach(o => o.onclick = () => { m.remove(); acts[+o.dataset.i][1](); });
   document.body.appendChild(m);
 }
-async function setMeta(id, meta) {
-  await api(`/api/dump/${id}/meta`, { method: "PUT", body: JSON.stringify(meta) });
-  loadDump();
-}
-document.addEventListener("click", () => document.querySelectorAll(".ctxmenu").forEach(m => m.remove()));
+document.addEventListener('click', () => $$('.ctx').forEach(m => m.remove()));
+async function setMeta(id, meta) { await api(`/api/dump/${id}/meta`, {method:'PUT', body:JSON.stringify(meta)}); loadHome(); }
 
-/* ── files + search ── */
+$('#h-send').onclick = sendEntry;
+$('#h-text').addEventListener('keydown', e => e.key === 'Enter' && sendEntry());
+async function sendEntry() {
+  const content = $('#h-text').value.trim();
+  if (!content) return;
+  await api('/api/dump', { method:'POST', body: JSON.stringify({ content, group_id: chat, to_username: peer }) });
+  $('#h-text').value = ''; loadHome();
+}
+$('#h-file').onchange = async (e) => { const f = e.target.files[0]; if (f) await dumpUpload(f); e.target.value=''; };
+async function dumpUpload(f) {
+  if (peer) return toast('file DMs need a share-space — not built yet');
+  const g = chat ? GROUPS.find(x => x.id === chat) : null;
+  const base = g ? `/group/${slug(g.name)}` : `/vault/${ME.username}`;
+  const name = `dump-${Date.now().toString(36)}-${f.name}`;
+  toast(`uploading ${f.name}…`);
+  const r = await fetch(`${CP}/up${encodeURI(base)}/${encodeURIComponent(name)}`,
+    { method:'PUT', headers:{ PW: ME.file_token }, body: f });
+  if (!r.ok) return toast(`upload failed (${r.status})`);
+  await api('/api/dump', { method:'POST', body: JSON.stringify({
+    content: f.name, file_path: `${base}/${name}`, group_id: chat }) });
+  loadHome(); badge();
+}
+
+/* drop overlay */
+let depth = 0;
+addEventListener('dragenter', e => {
+  if (view !== 'home' || !e.dataTransfer?.types.includes('Files')) return;
+  depth++; $('#drop').classList.remove('hidden');
+});
+addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; $('#drop').classList.add('hidden'); } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => { e.preventDefault(); depth = 0; $('#drop').classList.add('hidden'); });
+['dz-orig','dz-quick'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('dragover', () => el.classList.add('hot'));
+  el.addEventListener('dragleave', () => el.classList.remove('hot'));
+  el.addEventListener('drop', async e => {
+    e.preventDefault(); depth = 0; $('#drop').classList.add('hidden'); el.classList.remove('hot');
+    for (const f of e.dataTransfer.files) await dumpUpload(id === 'dz-quick' ? await shrink(f) : f);
+  });
+});
+async function shrink(f) {
+  if (!/^image\/(jpeg|png|webp)$/.test(f.type)) return f;
+  const img = await createImageBitmap(f);
+  const s = Math.min(1, 1600 / Math.max(img.width, img.height));
+  if (s === 1 && f.type === 'image/jpeg') return f;
+  const c = document.createElement('canvas');
+  c.width = img.width*s; c.height = img.height*s;
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.82));
+  return new File([blob], f.name.replace(/\.\w+$/, '.jpg'), { type:'image/jpeg' });
+}
+
+/* ══ ARCHIVE ══ */
 async function loadFiles() {
-  $("#crumbs").innerHTML = crumbHtml(cwd);
-  const r = await fetch(`${CP}${encodeURI(cwd)}/?ls`, { headers:{ "PW": ME.file_token } });
-  if (!r.ok) { $("#filelist").innerHTML = `<div class="empty">can't reach files (${r.status})</div>`; return; }
+  $('#crumbs').innerHTML = crumbs(cwd);
+  const r = await fetch(`${CP}${encodeURI(cwd)}/?ls`, { headers:{ PW: ME.file_token } });
+  if (!r.ok) return $('#files').innerHTML = `<div class="empty">can't reach files (${r.status})</div>`;
   const j = await r.json();
   const rows = [];
-  (j.dirs || []).forEach(d => rows.push(frow("📁", d.href.replace(/\/$/, ""), null, true)));
-  (j.files || []).forEach(f => rows.push(frow(icon(f.href), f.href, f.sz, false)));
-  $("#filelist").innerHTML = rows.join("") || `<div class="empty">empty folder</div>`;
-  document.querySelectorAll(".frow").forEach(el => el.onclick = () => {
-    const name = decodeURIComponent(el.dataset.name);
-    if (el.dataset.dir === "1") { cwd = `${cwd}/${name}`; loadFiles(); }
-    else window.open(`${CP}${encodeURI(cwd)}/${encodeURIComponent(name)}?pw=${ME.file_token}`, "_blank");
+  (j.dirs || []).forEach(d => rows.push(frow('▸', d.href.replace(/\/$/,''), null, 1)));
+  (j.files || []).forEach(f => rows.push(frow(ficon(f.href), f.href, f.sz, 0)));
+  $('#files').innerHTML = rows.join('') || `<div class="empty">empty</div>`;
+  $$('.frow').forEach(el => el.onclick = () => {
+    const n = decodeURIComponent(el.dataset.n);
+    if (el.dataset.d === '1') { cwd = `${cwd}/${n}`; loadFiles(); }
+    else window.open(`${CP}${encodeURI(cwd)}/${encodeURIComponent(n)}?pw=${ME.file_token}`, '_blank');
   });
 }
-const icon = (n) => /\.(jpe?g|png|gif|webp|heic)$/i.test(n) ? "🖼️"
-  : /\.(mp4|mkv|mov|avi|webm)$/i.test(n) ? "🎬" : /\.(mp3|flac|ogg|m4a|wav)$/i.test(n) ? "🎵"
-  : /\.(pdf|docx?|txt|md|epub)$/i.test(n) ? "📄" : "📦";
-const frow = (ico, name, sz, isDir) =>
-  `<div class="frow" data-name="${encodeURIComponent(name)}" data-dir="${isDir ? 1 : 0}">
-     <span class="fico">${ico}</span><span class="fname">${esc(name)}</span>
-     ${sz != null ? `<span class="fsize">${fmtSize(sz)}</span>` : ""}</div>`;
-function crumbHtml(path) {
-  const parts = path.split("/").filter(Boolean); let acc = "";
-  return parts.map((p, i) => { acc += "/" + p; const t = acc;
-    return i < parts.length - 1
-      ? `<a href="#" onclick="cwd='${t}';loadFiles();return false">${esc(p)}</a> / ` : esc(p); }).join("");
+const frow = (i, n, s, d) => `<div class="frow" data-n="${encodeURIComponent(n)}" data-d="${d}">
+  <span class="fi">${i}</span><span class="fn">${esc(n)}</span>${s!=null?`<span class="fs">${size(s)}</span>`:''}</div>`;
+function crumbs(p) {
+  const parts = p.split('/').filter(Boolean); let acc = '';
+  return parts.map((x, i) => { acc += '/'+x; const t = acc;
+    return i < parts.length-1 ? `<a href="#" data-cd="${t}">${esc(x)}</a> / ` : esc(x); }).join('');
 }
-$("#upload-input").onchange = async (e) => {
-  const files = [...e.target.files];
-  const upBase = cwd.startsWith("/up") ? cwd : "/up" + cwd;
-  for (const f of files) {
+document.addEventListener('click', e => {
+  const a = e.target.closest('#crumbs a[data-cd]'); if (!a) return;
+  e.preventDefault(); cwd = a.dataset.cd; loadFiles();
+});
+$('#up').onchange = async e => {
+  const base = cwd.startsWith('/up') ? cwd : '/up'+cwd;
+  for (const f of e.target.files) {
     toast(`uploading ${f.name}…`);
-    const r = await fetch(`${CP}${encodeURI(upBase)}/${encodeURIComponent(f.name)}`,
-      { method:"PUT", headers:{ "PW": ME.file_token }, body: f });
-    toast(r.ok ? `${f.name} → scanning` : `upload failed (${r.status})`);
+    const r = await fetch(`${CP}${encodeURI(base)}/${encodeURIComponent(f.name)}`,
+      { method:'PUT', headers:{ PW: ME.file_token }, body: f });
+    toast(r.ok ? `${f.name} → scanning` : `failed (${r.status})`);
   }
-  e.target.value = ""; setTimeout(refreshBadge, 1500);
+  e.target.value = ''; setTimeout(badge, 1500);
 };
-$("#search-open").onclick = () => { $("#search-view").classList.remove("hidden");
-  $("#search-q").value = ""; $("#search-results").innerHTML = ""; $("#search-q").focus(); };
-$("#search-close").onclick = () => $("#search-view").classList.add("hidden");
-let sTimer = null;
-$("#search-q").addEventListener("input", () => {
-  clearTimeout(sTimer); sTimer = setTimeout(runSearch, 350);
-});
+
+/* ══ SEARCH ══ */
+$('#searchbtn').onclick = () => { $('#v-search').classList.remove('hidden'); $('#s-q').value=''; $('#s-out').innerHTML=''; $('#s-q').focus(); };
+$('#s-close').onclick = () => $('#v-search').classList.add('hidden');
+let stimer;
+$('#s-q').addEventListener('input', () => { clearTimeout(stimer); stimer = setTimeout(runSearch, 340); });
 async function runSearch() {
-  const q = $("#search-q").value.trim();
-  if (!q) { $("#search-results").innerHTML = ""; return; }
-  const r = await fetch(`${CP}/?srch=${encodeURIComponent(q)}`, { headers:{ "PW": ME.file_token } });
-  if (!r.ok) { $("#search-results").innerHTML = `<div class="srow">search unavailable (${r.status})</div>`; return; }
-  const j = await r.json().catch(() => ({ hits: [] }));
+  const q = $('#s-q').value.trim();
+  if (!q) return $('#s-out').innerHTML = '';
+  const r = await fetch(`${CP}/?srch=${encodeURIComponent(q)}`, { headers:{ PW: ME.file_token } });
+  if (!r.ok) return $('#s-out').innerHTML = `<div class="srow">search unavailable (${r.status})</div>`;
+  const j = await r.json().catch(() => ({hits:[]}));
   const hits = j.hits || [];
-  $("#search-results").innerHTML = hits.slice(0, 40).map(h =>
-    `<div class="srow" data-vp="${esc(h.rp || h.vp || "")}"><span>${esc((h.rp || h.vp || "").split("/").pop())}</span>
-     <span class="spath">${esc(h.rp || h.vp || "")}</span></div>`).join("")
-    || `<div class="srow">no matches</div>`;
-  document.querySelectorAll(".srow[data-vp]").forEach(el => el.onclick = () =>
-    window.open(`${CP}/${encodeURI(el.dataset.vp)}?pw=${ME.file_token}`, "_blank"));
+  $('#s-out').innerHTML = hits.slice(0, 40).map(h => { const p = h.rp || h.vp || '';
+    return `<div class="srow" data-vp="${esc(p)}"><span>${esc(p.split('/').pop())}</span><span class="sp">${esc(p)}</span></div>`;
+  }).join('') || `<div class="srow">no matches</div>`;
+  $$('.srow[data-vp]').forEach(el => el.onclick = () =>
+    window.open(`${CP}/${encodeURI(el.dataset.vp)}?pw=${ME.file_token}`, '_blank'));
 }
 
-/* ── dash (insights + groups) ── */
-async function loadDash() {
-  const i = await api("/api/insights/today");
-  $("#insight-body").innerHTML = i.note
-    ? `<span style="grid-column:1/3;color:var(--muted)">${esc(i.note)}</span>`
-    : `<span>BMR</span><b>${i.bmr_kcal} kcal</b>
-       <span>Work</span><b>${i.work_hours} h · ${i.work_kcal} kcal</b>
-       <span>Workouts</span><b>${i.workout_minutes} min · ${i.workout_kcal} kcal</b>
-       <span>Est. burn</span><b>~${i.est_total_burn_kcal} kcal</b>
-       <span>Intake</span><b>${i.intake_kcal} kcal</b>
-       <span>Net</span><b>${i.net_kcal} kcal</b>
-       ${i.earnings ? `<span>Earned</span><b>$${i.earnings}</b>` : ""}`;
-  MYGROUPS = await api("/api/groups");
-  $("#grouplist").innerHTML = MYGROUPS.map(g => `
-    <div class="gcard" data-gid="${g.id}" data-name="${esc(g.name)}" data-role="${g.role}">
-      <span>${g.kind === "work" ? "🏗️" : g.kind === "family" ? "🏠" : "📌"}</span>
-      <span class="gname">${esc(g.name)}</span><span class="grole">${g.role}</span></div>`).join("")
-    || `<div class="empty">no groups yet</div>`;
-  document.querySelectorAll(".gcard").forEach(el => el.onclick = () => openGroup(el.dataset));
-  $("#group-detail").classList.add("hidden");
-}
-$("#g-create").onclick = async () => {
-  try { await api("/api/groups", { method:"POST", body: JSON.stringify({
-      name: $("#g-name").value.trim(), kind: $("#g-kind").value }) });
-    $("#g-name").value = ""; toast("group created"); loadDash();
-  } catch (e) { toast(e.message); }
-};
-async function openGroup(d) {
-  curGroup = d;
-  $("#group-detail").classList.remove("hidden");
-  $("#gd-name").textContent = d.name;
-  $("#gd-role").textContent = `you are ${d.role}`;
-  $("#gd-members-card").classList.toggle("hidden", !["owner","manager"].includes(d.role));
-  $("#gd-files").onclick = (e) => { e.preventDefault();
-    cwd = `/group/${chatSlug(d.name)}`; show("files"); };
-  const rows = await api(`/api/groups/${d.gid}/work`).catch(() => []);
-  $("#gd-work").innerHTML = rows.map(s => {
-    const h = hrs(s.started_at, s.ended_at);
-    const pay = s.hourly_rate ? ` · $${(h * s.hourly_rate).toFixed(2)}` : "";
-    return `<div class="lrow"><div class="grow"><b>${esc(s.username)}</b> — ${esc(s.activity || "work")}${s.note ? " · " + esc(s.note) : ""}
-      <span class="sub">${fmtDT(s.started_at)} · ${s.ended_at ? h.toFixed(1)+"h"+pay : "⏱ on the clock"}</span></div></div>`;
-  }).join("") || `<div class="empty">no sessions logged to this group</div>`;
-}
-$("#gm-add").onclick = async () => {
-  try { await api(`/api/groups/${curGroup.gid}/members`, { method:"POST", body: JSON.stringify({
-      username: $("#gm-user").value.trim(), role: $("#gm-role").value }) });
-    $("#gm-user").value = ""; toast("member added");
-  } catch (e) { toast(e.message); }
-};
-
-/* ── work ── */
-function tickTimer(startTs) {
-  clearInterval(tInterval);
-  const render = () => {
-    const s = Math.floor(Date.now()/1000 - startTs);
-    $("#t-elapsed").textContent =
-      [s/3600, s/60%60, s%60].map(n => String(Math.floor(n)).padStart(2,"0")).join(":");
-  };
-  render(); tInterval = setInterval(render, 1000);
-}
-const BASE_ACTS = ["desk","standing","driving","manual","construction"];
-function workSettings() { return SVC.find(x => x.service === "work")?.settings || {}; }
-async function saveWorkSettings(patch) {
-  const st = { ...workSettings(), ...patch };
-  await api("/api/services/work", { method:"PUT", body: JSON.stringify({ enabled:true, settings: st }) });
-  SVC = await api("/api/services");
-}
-function wireActivityCombo() {
-  const inp = $("#w-activity"), menu = document.querySelector("#w-activity-c .combo-menu");
-  const acts = () => [...new Set([...(workSettings().activities || []), ...BASE_ACTS])];
-  const render = () => {
-    const q = inp.value.trim().toLowerCase();
-    const hits = acts().filter(a => a.toLowerCase().includes(q));
-    menu.innerHTML = hits.map(a => `<div data-v="${esc(a)}">${esc(a)}</div>`).join("") +
-      (q && !acts().some(a => a.toLowerCase() === q)
-        ? `<div class="addnew" data-new="1">＋ add "${esc(inp.value.trim())}"</div>` : "");
-    menu.classList.toggle("hidden", !menu.innerHTML);
-    menu.querySelectorAll("div").forEach(d => d.onclick = async (e) => {
-      e.stopPropagation();
-      if (d.dataset.new) { const v = inp.value.trim();
-        await saveWorkSettings({ activities: [...(workSettings().activities || []), v] });
-        inp.value = v; }
-      else inp.value = d.dataset.v;
-      menu.classList.add("hidden");
-    });
-  };
-  inp.oninput = render;
-  inp.onfocus = render;
-  document.addEventListener("click", (e) => {
-    if (!e.target.closest("#w-activity-c")) menu.classList.add("hidden"); });
-}
-async function loadWork() {
-  $("#w-group").innerHTML = `<option value="">personal</option>` +
-    MYGROUPS.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join("");
-  const st = workSettings();
-  const rate = st.hourly_rate;
-  if (st.default_group) $("#w-group").value = String(st.default_group);
-  $("#w-default").checked = !!st.default_group;
-  $("#w-default").onchange = () => saveWorkSettings({
-    default_group: $("#w-default").checked ? (+$("#w-group").value || null) : null });
-  wireActivityCombo();
-  $("#w-rate-label").textContent = rate ? `· paired rate $${rate}/hr` : "· set rate in Settings";
-  const w = await api("/api/work/status");
-  const btn = $("#w-toggle");
-  if (w.id) { btn.textContent = "Stop"; btn.classList.add("running");
-    $("#t-sub").textContent = `${w.activity || "work"} since ${fmtDT(w.started_at)}`;
-    tickTimer(w.started_at);
-  } else { btn.textContent = "Start"; btn.classList.remove("running");
-    $("#t-sub").textContent = "not on the clock";
-    clearInterval(tInterval); $("#t-elapsed").textContent = "00:00:00"; }
-  const rows = await api("/api/work/sessions?days=120");
-  WSESS = rows;
-  renderIncome();
-  $("#worklist").innerHTML = rows.slice(0, 25).map(s => {
-    const h = hrs(s.started_at, s.ended_at);
-    const pay = s.hourly_rate ? ` · $${(h * s.hourly_rate).toFixed(2)}` : "";
-    return `<div class="lrow editable" data-sid="${s.id}"><div class="grow">${esc(s.activity || "work")}${s.note ? " — " + esc(s.note) : ""}
-      <span class="sub">${fmtDT(s.started_at)} · ${s.ended_at ? h.toFixed(1)+"h"+pay : "⏱ running"}</span></div></div>`;
-  }).join("") || `<div class="empty">no sessions</div>`;
-  document.querySelectorAll("#worklist .editable").forEach(el => el.onclick = () =>
-    editSession(el, rows.find(r => r.id === +el.dataset.sid)));
-}
-let WSESS = [];
-function editSession(el, s) {
-  if (!s || el.classList.contains("editing")) return;
-  el.classList.add("editing");
-  el.innerHTML = `<div class="sess-edit" style="width:100%">
-    <input class="e-act" value="${esc(s.activity || "")}" placeholder="activity">
-    <input class="e-note" value="${esc(s.note || "")}" placeholder="note">
-    <div class="row"><input class="e-rate" type="number" step="0.5" value="${s.hourly_rate ?? ""}" placeholder="$/hr">
-      <button class="act e-save">Save</button><button class="act e-del" style="background:var(--danger)">Delete</button></div></div>`;
-  el.onclick = null;
-  el.querySelector(".e-save").onclick = async () => {
-    await api(`/api/work/${s.id}`, { method:"PUT", body: JSON.stringify({
-      activity: el.querySelector(".e-act").value || null,
-      note: el.querySelector(".e-note").value || null,
-      hourly_rate: +el.querySelector(".e-rate").value || null }) });
-    toast("saved"); loadWork(); };
-  el.querySelector(".e-del").onclick = async () => {
-    await api(`/api/work/${s.id}`, { method:"DELETE" }); toast("deleted"); loadWork(); };
-}
-let incMode = "w";
-document.querySelectorAll("#inc-seg button").forEach(b => b.onclick = () => {
-  document.querySelectorAll("#inc-seg button").forEach(x => x.classList.remove("active"));
-  b.classList.add("active"); incMode = b.dataset.g; renderIncome();
+/* ══ PHOTOS ══ */
+let phMode = 'mine';
+document.addEventListener('click', e => {
+  const b = e.target.closest('#phseg button'); if (!b) return;
+  $$('#phseg button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+  phMode = b.dataset.m; loadPhotos();
 });
-function renderIncome() {
-  const span = incMode === "w" ? 7 : incMode === "2w" ? 14 : 30;
-  const buckets = {};
-  WSESS.forEach(s => {
-    if (!s.ended_at) return;
-    const bucket = Math.floor(s.started_at / (span * 86400));
-    const h = (s.ended_at - s.started_at) / 3600;
-    const b2 = buckets[bucket] ??= { h: 0, pay: 0, from: bucket * span * 86400 };
-    b2.h += h; if (s.hourly_rate) b2.pay += h * s.hourly_rate;
-  });
-  $("#inclist").innerHTML = Object.values(buckets).sort((a,b) => b.from - a.from).slice(0, 6)
-    .map(b => `<div class="lrow"><div class="grow">${fmtDay(b.from)} – ${fmtDay(b.from + span*86400 - 1)}</div>
-      <span class="muted">${b.h.toFixed(1)}h · $${b.pay.toFixed(2)}</span></div>`).join("");
-}
-$("#w-toggle").onclick = async () => {
-  const w = await api("/api/work/status");
-  if (w.id) { await api("/api/work/clockout", { method:"POST" }); toast("clocked out"); }
-  else {
-    const body = { activity: $("#w-activity").value.trim() || null, note: $("#w-note").value || null };
-    if (!$("#w-default").checked) body.group_id = +$("#w-group").value || null;
-    await api("/api/work/clockin", { method:"POST", body: JSON.stringify(body) });
-    toast("clocked in"); }
-  loadWork();
-};
-$("#mw-addseg").onclick = () => {
-  const div = document.createElement("div"); div.className = "row seg-row";
-  div.innerHTML = `<input class="sg-h" type="number" placeholder="hr" style="max-width:70px">
-    <input class="sg-m" type="number" placeholder="min" style="max-width:76px">
-    <input class="sg-d" placeholder="what was done">
-    <button class="act" style="background:var(--danger)">✕</button>`;
-  div.querySelector("button").onclick = () => div.remove();
-  $("#mw-segs").appendChild(div);
-};
-$("#mw-save").onclick = async () => {
-  const d = DTP["mw-date"], s1 = DTP["mw-start"];
-  if (!d || !s1) { toast("date + start required"); return; }
-  const ts = (t) => Math.floor(new Date(`${d}T${t}`).getTime() / 1000);
-  const segs = [...document.querySelectorAll(".seg-row")].map(r => ({
-    min: (+r.querySelector(".sg-h").value || 0) * 60 + (+r.querySelector(".sg-m").value || 0),
-    desc: r.querySelector(".sg-d").value.trim() })).filter(x => x.min > 0);
-  try {
-    if (segs.length) {                       // sequential segments from start time
-      let cur = ts(s1);
-      for (const sg of segs) {
-        await api("/api/work/manual", { method:"POST", body: JSON.stringify({
-          started_at: cur, duration_min: sg.min, note: sg.desc || null }) });
-        cur += sg.min * 60;
-      }
-      toast(`${segs.length} segments added`);
-    } else {
-      const s2 = DTP["mw-end"];
-      if (!s2) { toast("end time or segments required"); return; }
-      await api("/api/work/manual", { method:"POST", body: JSON.stringify({
-        started_at: ts(s1), ended_at: ts(s2),
-        break_min: +$("#mw-break").value || 0, note: $("#mw-note").value || null }) });
-      toast("entry added");
-    }
-    document.querySelectorAll(".seg-row").forEach(r => r.remove());
-    loadWork();
-  } catch (e) { toast(e.message); }
-};
-
-/* ── sleep ── */
-async function loadSleep() {
-  const rows = await api("/api/sleep/recent");
-  $("#sleeplist").innerHTML = rows.map(s => {
-    const dur = s.woke_at ? hrs(s.slept_at, s.woke_at).toFixed(1)+"h" : "?";
-    return `<div class="lrow"><div class="grow">${fmtDay(s.slept_at)}
-      <span class="sub">${dur}${s.quality ? " · quality " + s.quality + "/5" : ""}</span></div></div>`;
-  }).join("") || `<div class="empty">no sleep synced — pair the puck</div>`;
-}
-$("#sleep-key").onclick = async () => {
-  const r = await api("/api/sleep/devicekey", { method:"POST", body: JSON.stringify({ label:"alarm-puck" }) });
-  const el = $("#sleep-key-out"); el.textContent = r.key; el.classList.remove("hidden");
-  toast("key shown once — store it on the device");
-};
-
-/* ── media ── */
-let medMode = "mine";
-document.addEventListener("click", (e) => {
-  const b = e.target.closest("#med-seg button"); if (!b) return;
-  document.querySelectorAll("#med-seg button").forEach(x => x.classList.remove("active"));
-  b.classList.add("active"); medMode = b.dataset.m; loadMedia();
-});
-async function loadMedia() {
-  $("#jf-link2").href = `${location.protocol}//${location.hostname}:8096`;
-  const stream = medMode === "stream";
-  $("#photogrid").classList.toggle("hidden", stream);
-  $("#streampane").classList.toggle("hidden", !stream);
-  if (stream) {
+async function loadPhotos() {
+  $('#jf').href = `${location.protocol}//${location.hostname}:8096`;
+  const screen = phMode === 'screen';
+  $('#grid').classList.toggle('hidden', screen);
+  $('#screenpane').classList.toggle('hidden', !screen);
+  if (screen) {
     const out = [];
-    for (const cat of ["movies", "tv"]) {
-      const r = await fetch(`${CP}/public/${cat}/?ls`, { headers: { "PW": ME.file_token } });
+    for (const cat of ['movies','tv']) {
+      const r = await fetch(`${CP}/public/${cat}/?ls`, { headers:{ PW: ME.file_token } });
       if (!r.ok) continue;
       const j = await r.json();
-      [...(j.dirs || []), ...(j.files || [])].forEach(f =>
-        out.push(`<div class="lrow"><div class="grow">${esc(decodeURIComponent(f.href.replace(/\/$/, "")))}
-          <span class="sub">${cat}</span></div></div>`));
+      [...(j.dirs||[]), ...(j.files||[])].forEach(f => out.push(
+        `<div class="lrow"><div class="grow">${esc(decodeURIComponent(f.href.replace(/\/$/,'')))}
+         <span class="sub">${cat}</span></div></div>`));
     }
-    $("#medlist").innerHTML = out.join("") ||
-      `<div class="empty">pool empty — drives + Jellyfin libraries pending</div>`;
+    $('#lib').innerHTML = out.join('') || `<div class="empty">pool empty — drives &amp; libraries pending</div>`;
     return;
   }
-  const base = medMode === "mine" ? `/vault/${ME.username}` : "/public/photos";
-  const imgs = await collectImages(base, 2);
-  $("#photogrid").innerHTML = imgs.slice(0, 200).map(u =>
-    `<img loading="lazy" src="${u}" data-u="${u}">`).join("") ||
-    `<div class="empty">no photos in ${medMode === "mine" ? "your vault" : "the family pool"} yet</div>`;
-  document.querySelectorAll("#photogrid img").forEach(im => im.onclick = () => {
-    $("#lb-img").src = im.dataset.u; $("#lightbox").classList.remove("hidden"); });
+  const base = phMode === 'mine' ? `/vault/${ME.username}` : '/public/photos';
+  const imgs = await walk(base, 2, /\.(jpe?g|png|gif|webp)$/i);
+  $('#grid').innerHTML = imgs.slice(0, 200).map(u => `<img loading="lazy" src="${u}" data-u="${u}" alt="">`).join('')
+    || `<div class="empty">no photos in ${phMode === 'mine' ? 'your vault' : 'the family pool'} yet</div>`;
+  $$('#grid img').forEach(im => im.onclick = () => openLb(im.dataset.u));
 }
-$("#lightbox").onclick = () => $("#lightbox").classList.add("hidden");
-async function collectImages(vp, depth) {
-  const r = await fetch(`${CP}${encodeURI(vp)}/?ls`, { headers: { "PW": ME.file_token } });
+function openLb(u) { $('#lbimg').src = u; $('#lightbox').classList.remove('hidden'); }
+$('#lightbox').onclick = () => $('#lightbox').classList.add('hidden');
+async function walk(vp, depth, re, meta = false) {
+  const r = await fetch(`${CP}${encodeURI(vp)}/?ls`, { headers:{ PW: ME.file_token } });
   if (!r.ok) return [];
   const j = await r.json();
-  let out = (j.files || []).filter(f => /\.(jpe?g|png|gif|webp)$/i.test(f.href))
-    .map(f => `${CP}${encodeURI(vp)}/${f.href}?pw=${ME.file_token}`);
-  if (depth > 0)
-    for (const d of (j.dirs || []).slice(0, 12)) {
-      if (d.href.startsWith(".")) continue;
-      out = out.concat(await collectImages(`${vp}/${d.href.replace(/\/$/, "")}`, depth - 1));
-    }
+  let out = (j.files || []).filter(f => re.test(f.href)).map(f => meta
+    ? { name: decodeURIComponent(f.href), url: `${CP}${encodeURI(vp)}/${f.href}?pw=${ME.file_token}`, sz: f.sz }
+    : `${CP}${encodeURI(vp)}/${f.href}?pw=${ME.file_token}`);
+  if (depth > 0) for (const d of (j.dirs || []).slice(0, 12)) {
+    if (d.href.startsWith('.')) continue;
+    out = out.concat(await walk(`${vp}/${d.href.replace(/\/$/,'')}`, depth-1, re, meta));
+  }
   return out;
 }
 
-/* ── pending ── */
-async function refreshBadge() {
+/* ══ SHELF ══ */
+let shMode = 'books';
+document.addEventListener('click', e => {
+  const b = e.target.closest('#shseg button'); if (!b) return;
+  $$('#shseg button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+  shMode = b.dataset.s; loadShelf();
+});
+async function loadShelf() {
+  const el = $('#shelf');
+  el.innerHTML = `<div class="empty">reading the shelf…</div>`;
+  if (shMode === 'audiobooks' || shMode === 'podcasts') {
+    el.innerHTML = `<div class="empty">no ${shMode} source yet — nothing on the server feeds this</div>`;
+    return;
+  }
+  const cfg = shMode === 'books'
+    ? { paths: [`/vault/${ME.username}`, '/public/docs'], re: /\.(pdf|epub|mobi|azw3)$/i }
+    : { paths: ['/public/music'], re: /\.(mp3|flac|ogg|m4a|wav)$/i };
+  let items = [];
+  for (const p of cfg.paths) items = items.concat(await walk(p, 2, cfg.re, true).catch(() => []));
+  el.innerHTML = items.slice(0, 120).map(f => {
+    const ext = f.name.split('.').pop().toUpperCase();
+    return `<div class="spine" data-u="${f.url}"><span class="kind">${ext}</span>
+      <span class="t">${esc(f.name.replace(/\.\w+$/, ''))}</span></div>`;
+  }).join('') || `<div class="empty">nothing on the ${shMode} shelf yet</div>`;
+  $$('.spine').forEach(s => s.onclick = () => window.open(s.dataset.u, '_blank'));
+}
+
+/* ══ HOURS ══ */
+const BASE_ACTS = ['desk','standing','driving','manual','construction'];
+const wset = () => SVC.find(s => s.service === 'work')?.settings || {};
+async function saveWset(patch) {
+  await api('/api/services/work', { method:'PUT', body: JSON.stringify({ enabled:true, settings:{ ...wset(), ...patch } }) });
+  SVC = await api('/api/services');
+}
+async function loadHours() {
+  const st = wset();
+  $('#ratelbl').textContent = st.hourly_rate ? `· $${st.hourly_rate}/hr` : '· set a rate in Settings';
+  mkSelect($('#orgsel'), [['','personal'], ...GROUPS.map(g => [String(g.id), g.name])],
+    st.default_group ? String(st.default_group) : '');
+  $('#deforg').classList.toggle('on', !!st.default_group);
+  $('#deforg').parentElement.onclick = () => {
+    const on = !$('#deforg').classList.contains('on');
+    $('#deforg').classList.toggle('on', on);
+    saveWset({ default_group: on ? (+$('#orgsel').dataset.val || null) : null });
+  };
+  combo($('#act-c'), () => [...new Set([...(wset().activities || []), ...BASE_ACTS])],
+    async v => saveWset({ activities: [...(wset().activities || []), v] }));
+
+  const w = await api('/api/work/status');
+  const btn = $('#tgo');
+  if (w.id) { btn.textContent = 'Stop'; btn.classList.add('running');
+    $('#tsub').textContent = `${w.activity || 'work'} since ${dt(w.started_at)}`; runClock(w.started_at); }
+  else { btn.textContent = 'Start'; btn.classList.remove('running');
+    $('#tsub').textContent = 'not on the clock'; clearInterval(tick); $('#tclock').textContent = '00:00:00'; }
+
+  WSESS = await api('/api/work/sessions?days=120');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const t0 = today.getTime()/1000;
+  let th = 0, te = 0;
+  WSESS.forEach(s => { if (s.started_at >= t0) { const h = hrs(s.started_at, s.ended_at); th += h; if (s.hourly_rate) te += h*s.hourly_rate; } });
+  $('#hr-today').textContent = th.toFixed(1)+'h';
+  $('#hr-earn').textContent = '$'+te.toFixed(2);
+  renderIncome();
+  $('#sessions').innerHTML = WSESS.slice(0, 25).map(s => {
+    const h = hrs(s.started_at, s.ended_at);
+    const pay = s.hourly_rate ? ` · $${(h*s.hourly_rate).toFixed(2)}` : '';
+    return `<div class="lrow" data-sid="${s.id}"><div class="grow">${esc(s.activity || 'work')}${s.note?' — '+esc(s.note):''}
+      <span class="sub">${dt(s.started_at)} · ${s.ended_at ? h.toFixed(1)+'h'+pay : 'running'}</span></div></div>`;
+  }).join('') || `<div class="empty">no sessions</div>`;
+  $$('#sessions .lrow').forEach(el => el.onclick = () => editSess(el, WSESS.find(x => x.id === +el.dataset.sid)));
+}
+function runClock(from) {
+  clearInterval(tick);
+  const r = () => { const s = Math.floor(Date.now()/1000 - from);
+    $('#tclock').textContent = [s/3600, s/60%60, s%60].map(n => String(Math.floor(n)).padStart(2,'0')).join(':'); };
+  r(); tick = setInterval(r, 1000);
+}
+$('#tgo').onclick = async () => {
+  const w = await api('/api/work/status');
+  if (w.id) { await api('/api/work/clockout', {method:'POST'}); toast('clocked out'); }
+  else {
+    const b = { activity: $('#act').value.trim() || null, note: $('#tnote').value || null };
+    if (!$('#deforg').classList.contains('on')) b.group_id = +$('#orgsel').dataset.val || null;
+    await api('/api/work/clockin', { method:'POST', body: JSON.stringify(b) }); toast('clocked in');
+  }
+  loadHours();
+};
+function editSess(el, s) {
+  if (!s || el.dataset.edit) return;
+  el.dataset.edit = 1; el.classList.add('editing'); el.onclick = null;
+  el.innerHTML = `<input class="ea" value="${esc(s.activity||'')}" placeholder="activity">
+    <div class="row"><input class="en" value="${esc(s.note||'')}" placeholder="note"></div>
+    <div class="row"><input class="er" inputmode="decimal" value="${s.hourly_rate ?? ''}" placeholder="$/hr">
+      <button class="act sv">Save</button><button class="act dl" style="background:#b4574d;color:#fff">Delete</button></div>`;
+  el.querySelector('.sv').onclick = async () => {
+    await api(`/api/work/${s.id}`, { method:'PUT', body: JSON.stringify({
+      activity: el.querySelector('.ea').value || null, note: el.querySelector('.en').value || null,
+      hourly_rate: parseFloat(el.querySelector('.er').value) || null }) });
+    toast('saved'); loadHours();
+  };
+  el.querySelector('.dl').onclick = async () => { await api(`/api/work/${s.id}`, {method:'DELETE'}); toast('deleted'); loadHours(); };
+}
+let incMode = 'w';
+document.addEventListener('click', e => {
+  const b = e.target.closest('#incseg button'); if (!b) return;
+  $$('#incseg button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+  incMode = b.dataset.g; renderIncome();
+});
+function renderIncome() {
+  const span = incMode === 'w' ? 7 : incMode === '2w' ? 14 : 30;
+  const bk = {};
+  WSESS.forEach(s => { if (!s.ended_at) return;
+    const k = Math.floor(s.started_at / (span*86400));
+    const h = (s.ended_at - s.started_at)/3600;
+    const b = bk[k] ??= { h:0, pay:0, from: k*span*86400 };
+    b.h += h; if (s.hourly_rate) b.pay += h*s.hourly_rate;
+  });
+  $('#income').innerHTML = Object.values(bk).sort((a,b) => b.from - a.from).slice(0,6)
+    .map(b => `<div class="lrow"><div class="grow">${day(b.from)} – ${day(b.from + span*86400 - 1)}</div>
+      <span class="dim">${b.h.toFixed(1)}h · $${b.pay.toFixed(2)}</span></div>`).join('')
+    || `<div class="empty">no completed sessions</div>`;
+}
+$('#addseg').onclick = () => {
+  const d = document.createElement('div'); d.className = 'segrow';
+  d.innerHTML = `<input class="sh" inputmode="numeric" placeholder="hr"><input class="sm" inputmode="numeric" placeholder="min">
+    <input class="sd" placeholder="what was done"><button>✕</button>`;
+  d.querySelector('button').onclick = () => d.remove();
+  $('#segs').appendChild(d);
+};
+$('#p-save').onclick = async () => {
+  const d = PICK['p-date'], s1 = PICK['p-start'];
+  if (!d || !s1) return toast('date + start required');
+  const ts = t => Math.floor(new Date(`${d}T${t}`).getTime()/1000);
+  const segs = $$('.segrow').map(r => ({
+    min: (+r.querySelector('.sh').value || 0)*60 + (+r.querySelector('.sm').value || 0),
+    desc: r.querySelector('.sd').value.trim() })).filter(x => x.min > 0);
   try {
-    const rows = await api(`/api/pending${ME.is_admin ? "?all=1" : ""}`);
-    const n = rows.filter(r => r.status === "flagged").length;
-    const b = $("#pending-badge");
-    if (b) { b.textContent = n; b.classList.toggle("hidden", n === 0); }
+    if (segs.length) {
+      let cur = ts(s1);
+      for (const sg of segs) {
+        await api('/api/work/manual', { method:'POST', body: JSON.stringify({
+          started_at: cur, duration_min: sg.min, note: sg.desc || null }) });
+        cur += sg.min*60;
+      }
+      toast(`${segs.length} segments added`);
+    } else {
+      const s2 = PICK['p-end'];
+      if (!s2) return toast('end time or segments required');
+      await api('/api/work/manual', { method:'POST', body: JSON.stringify({
+        started_at: ts(s1), ended_at: ts(s2), break_min: +$('#p-break').value || 0,
+        note: $('#p-note').value || null }) });
+      toast('entry added');
+    }
+    $$('.segrow').forEach(r => r.remove()); loadHours();
+  } catch (e) { toast(e.message); }
+};
+
+/* ══ REVIEW ══ */
+async function badge() {
+  try {
+    const rows = await api(`/api/pending${ME.is_admin ? '?all=1' : ''}`);
+    const n = rows.filter(r => r.status === 'flagged').length;
+    const b = $('#pbadge'); if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
   } catch {}
 }
-async function loadPending() {
-  const rows = await api(`/api/pending${ME.is_admin ? "?all=1" : ""}`);
-  if (!rows.length) { $("#pendinglist").innerHTML = `<div class="empty">nothing pending 🎉</div>`; return; }
-  $("#pendinglist").innerHTML = rows.map(r => `
-    <div class="prow" data-id="${r.id}">
-      <div class="pname">${esc(r.filename)}</div>
-      <div class="pmeta">${esc(r.owner)} · ${fmtSize(r.size_bytes)} · → ${esc(r.intended_dest)}
-        ${r.status === "flagged" ? `<div class="pflag">⚠ ${esc(r.flag_reason || "flagged")}</div>` : "· scanning…"}</div>
-      ${r.status === "flagged" ? `<div class="pacts"><button class="rel">Release</button><button class="rej">Delete</button></div>` : ""}
-    </div>`).join("");
-  document.querySelectorAll(".prow .rel").forEach(b => b.onclick = () => act(b, "release"));
-  document.querySelectorAll(".prow .rej").forEach(b => b.onclick = () => act(b, "reject"));
+async function loadReview() {
+  const rows = await api(`/api/pending${ME.is_admin ? '?all=1' : ''}`);
+  if (!rows.length) return $('#pending').innerHTML = `<div class="empty">nothing waiting</div>`;
+  $('#pending').innerHTML = rows.map(r => `<div class="prow" data-id="${r.id}">
+    <div class="pn">${esc(r.filename)}</div>
+    <div class="pm">${esc(r.owner)} · ${size(r.size_bytes)} · → ${esc(r.intended_dest)}
+      ${r.status==='flagged' ? `<div class="flag">⚠ ${esc(r.flag_reason || 'flagged')}</div>` : '· scanning…'}</div>
+    ${r.status==='flagged' ? `<div class="pacts"><button class="rel">Release</button><button class="rej">Delete</button></div>`:''}</div>`).join('');
+  $$('.prow .rel').forEach(b => b.onclick = () => resolve(b, 'release'));
+  $$('.prow .rej').forEach(b => b.onclick = () => resolve(b, 'reject'));
 }
-async function act(btn, action) {
-  const id = btn.closest(".prow").dataset.id;
-  try { await api(`/api/pending/${id}/${action}`, { method:"POST" });
-    toast(action === "release" ? "released ✓" : "deleted"); loadPending(); refreshBadge(); }
+async function resolve(btn, action) {
+  try { await api(`/api/pending/${btn.closest('.prow').dataset.id}/${action}`, {method:'POST'});
+    toast(action === 'release' ? 'released' : 'deleted'); loadReview(); badge(); }
   catch (e) { toast(e.message); }
 }
 
-/* ── settings ── */
-const SVCDESC = { work:"hours, earnings, org visibility", fitness:"opens Workout Gen (ported)",
-  meals:"opens Meal Prep (ported)", sleep:"puck sync, quality", journal:"private writing" };
-async function loadSettings() {
-  SVC = await api("/api/services");
-  $("#svc-list").innerHTML = SVC.map(s => `
-    <div class="svcrow" data-svc="${s.service}">
-      <div class="grow"><div class="sname">${SVCMETA[s.service].i} ${SVCMETA[s.service].l}</div>
-        <div class="ssub">${SVCDESC[s.service]}</div></div>
-      ${s.service === "work" ? `<input class="rate" type="number" step="0.5" placeholder="$/hr"
-        value="${s.settings.hourly_rate ?? ""}">` : ""}
-      <div class="sw ${s.enabled ? "on" : ""}"></div>
-    </div>`).join("");
-  document.querySelectorAll(".svcrow .sw").forEach(sw => sw.onclick = () => saveSvc(sw.closest(".svcrow"), !sw.classList.contains("on")));
-  document.querySelectorAll(".svcrow .rate").forEach(r => r.onchange = () => {
-    const row = r.closest(".svcrow");
-    saveSvc(row, row.querySelector(".sw").classList.contains("on")); });
-  const paired = SVC.filter(x => x.enabled).map(x => SVCAPP[x.service] || null).filter(Boolean);
-  const apps = [...new Set(["workout-gen", "meal-prep", "contract-manager", ...paired])];
-  const parts = [];
-  for (const a of apps) {
-    const snaps = await api(`/api/kv/${a}/snapshots`).catch(() => []);
-    parts.push(`<div class="snaprow" data-app="${a}"><div class="grow"><b>${a}</b>
-      <span class="ssub">${snaps.length ? snaps.length + " snapshots · latest " + fmtDT(snaps[0].created_at) : "no snapshots yet"}</span></div>
-      <button class="btn-rb snap-now">Snapshot</button>
-      ${snaps.length ? `<button class="btn-rb danger snap-restore" data-sid="${snaps[0].id}">Restore latest</button>` : ""}</div>`);
-  }
-  $("#snaplist").innerHTML = parts.join("");
-  document.querySelectorAll(".snap-now").forEach(b => b.onclick = async () => {
-    const a = b.closest(".snaprow").dataset.app;
-    const r = await api(`/api/kv/${a}/snapshot`, { method: "POST" });
-    toast(`${a}: ${r.keys} keys snapshotted`); loadSettings(); });
-  document.querySelectorAll(".snap-restore").forEach(b => b.onclick = async () => {
-    const a = b.closest(".snaprow").dataset.app;
-    const r = await api(`/api/kv/${a}/restore/${b.dataset.sid}`, { method: "POST" });
-    toast(`${a}: restored ${r.keys} keys`); });
-  if (ME.is_admin) {
-    $("#admin-rb").classList.remove("hidden");
-    const users = await api("/api/users");
-    $("#userlist").innerHTML = users.map(u => `
-      <div class="urow"><div class="grow">${esc(u.username)}
-        <span class="sub" style="color:#6f6f6f">joined ${fmtDay(u.created_at)}</span></div>
-        ${u.is_admin ? '<span class="tag">ADMIN</span>' : ""}
-        ${u.must_change_pw ? '<span class="tag">RESET PENDING</span>' : ""}
-        ${u.disabled ? '<span class="tag">DISABLED</span>' : ""}</div>`).join("");
-  }
+/* ══ SLEEP ══ */
+async function loadSleep() {
+  const rows = await api('/api/sleep/recent');
+  $('#sleeplist').innerHTML = rows.map(s => {
+    const d = s.woke_at ? hrs(s.slept_at, s.woke_at).toFixed(1)+'h' : '?';
+    return `<div class="lrow"><div class="grow">${day(s.slept_at)}
+      <span class="sub">${d}${s.quality?' · quality '+s.quality+'/5':''}</span></div></div>`;
+  }).join('') || `<div class="empty">no sleep synced — pair the puck</div>`;
 }
-async function saveSvc(row, enabled) {
-  const svc = row.dataset.svc;
-  const settings = {};
-  const rate = row.querySelector(".rate");
-  if (rate && rate.value) settings.hourly_rate = +rate.value;
-  await api(`/api/services/${svc}`, { method:"PUT",
-    body: JSON.stringify({ enabled, settings }) });
-  row.querySelector(".sw").classList.toggle("on", enabled);
-  SVC = await api("/api/services");
-  buildRail(); toast(enabled ? `${svc} paired` : `${svc} unpaired`);
-}
-$("#cp-save").onclick = async () => {
-  try { await api("/api/password", { method:"POST", body: JSON.stringify({
-      current_password: $("#cp-cur").value, new_password: $("#cp-new").value }) });
-    $("#cp-cur").value = $("#cp-new").value = ""; toast("password changed");
-  } catch (e) { toast(e.message); }
+$('#pk-key').onclick = async () => {
+  const r = await api('/api/sleep/devicekey', { method:'POST', body: JSON.stringify({label:'alarm-puck'}) });
+  const el = $('#pk-out'); el.textContent = r.key; el.classList.remove('hidden');
+  toast('shown once — store it on the device');
 };
-$("#au-add").onclick = async () => {
-  try { const r = await api("/api/users", { method:"POST", body: JSON.stringify({
-      username: $("#au-name").value.trim(), password: $("#au-pass").value }) });
-    toast(r.warning || "user created — they'll set their own password");
-    $("#au-name").value = $("#au-pass").value = ""; loadSettings();
-  } catch (e) { toast(e.message); }
-};
-$("#logout").onclick = async () => { await api("/api/logout", { method:"POST" }); location.reload(); };
 
-/* ── journal ── */
-function openJournal() { $("#app-view").classList.add("hidden");
-  $("#journal-view").classList.remove("hidden"); loadJournal(); }
-$("#j-close").onclick = (e) => { e.preventDefault();
-  $("#journal-view").classList.add("hidden"); $("#app-view").classList.remove("hidden"); };
+/* ══ JOURNAL ══ */
 async function loadJournal() {
-  $("#j-editor").classList.add("hidden"); $("#j-list").classList.remove("hidden");
-  const rows = await api("/api/journal");
-  $("#j-list").innerHTML = rows.map(e => `
-    <div class="jrow" data-id="${e.id}"><span class="jdate">${fmtDay(e.created_at)}</span>
-      <h4>${esc(e.title || "untitled")}</h4><p>${esc(e.body || "")}</p></div>`).join("")
-    || `<div class="empty">empty pages, waiting</div>`;
-  document.querySelectorAll(".jrow").forEach(el => el.onclick = async () => {
-    const rows2 = await api("/api/journal");
-    openEditor(rows2.find(x => x.id === +el.dataset.id)); });
+  $('#j-edit').classList.add('hidden'); $('#j-list').classList.remove('hidden'); $('#j-new').classList.remove('hidden');
+  const rows = await api('/api/journal');
+  $('#j-list').innerHTML = rows.map(e => `<div class="jrow" data-id="${e.id}">
+    <span class="jd">${day(e.created_at)}</span><h4>${esc(e.title || 'untitled')}</h4>
+    <p>${esc(e.body || '')}</p></div>`).join('') || `<div class="empty">empty pages, waiting</div>`;
+  $$('.jrow').forEach(el => el.onclick = async () => {
+    const all = await api('/api/journal'); jEdit(all.find(x => x.id === +el.dataset.id)); });
 }
-function openEditor(entry) {
-  curEntry = entry || null;
-  $("#j-list").classList.add("hidden"); $("#j-editor").classList.remove("hidden");
-  $("#j-title").value = entry?.title || ""; $("#j-body").value = entry?.body || "";
-  $("#j-delete").classList.toggle("hidden", !entry);
+function jEdit(e) {
+  curJ = e || null;
+  $('#j-list').classList.add('hidden'); $('#j-new').classList.add('hidden'); $('#j-edit').classList.remove('hidden');
+  $('#j-title').value = e?.title || ''; $('#j-body').value = e?.body || '';
+  $('#j-del').classList.toggle('hidden', !e);
 }
-$("#j-new").onclick = (e) => { e.preventDefault(); openEditor(null); };
-$("#j-save").onclick = async () => {
-  const payload = { title: $("#j-title").value, body: $("#j-body").value };
-  if (curEntry) await api(`/api/journal/${curEntry.id}`, { method:"PUT", body: JSON.stringify(payload) });
-  else await api("/api/journal", { method:"POST", body: JSON.stringify(payload) });
-  toast("saved"); loadJournal();
+$('#j-new').onclick = () => jEdit(null);
+$('#j-save').onclick = async () => {
+  const p = { title: $('#j-title').value, body: $('#j-body').value };
+  if (curJ) await api(`/api/journal/${curJ.id}`, {method:'PUT', body:JSON.stringify(p)});
+  else await api('/api/journal', {method:'POST', body:JSON.stringify(p)});
+  toast('saved'); loadJournal();
 };
-$("#j-delete").onclick = async () => {
-  await api(`/api/journal/${curEntry.id}`, { method:"DELETE" }); toast("deleted"); loadJournal();
+$('#j-del').onclick = async () => { await api(`/api/journal/${curJ.id}`, {method:'DELETE'}); toast('deleted'); loadJournal(); };
+
+/* ══ SETTINGS ══ */
+const SVCMETA = { work:['Hours','hours, earnings, org visibility'], fitness:['Workout','opens Workout Gen'],
+  meals:['Meal Prep','opens Meal Prep'], sleep:['Sleep','puck sync, quality'], journal:['Journal','private writing'] };
+async function loadSettings() {
+  ['surf','tone','mode'].forEach(g => $$(`#${g}seg button`).forEach(b => b.onclick = () => {
+    UI[{surf:'surface', tone:'tone', mode:'mode'}[g]] = b.dataset.v; applyTheme(); saveUI(); }));
+  applyTheme();
+
+  SVC = await api('/api/services');
+  $('#svcs').innerHTML = SVC.map(s => { const [n, d] = SVCMETA[s.service] || [s.service, ''];
+    return `<div class="svcrow" data-s="${s.service}"><div class="g"><div class="sn">${n}</div><span class="sd">${d}</span></div>
+      ${s.service==='work' ? `<input class="rate" inputmode="decimal" placeholder="$/hr" value="${s.settings.hourly_rate ?? ''}">` : ''}
+      <div class="sw ${s.enabled?'on':''}"></div></div>`; }).join('');
+  $$('.svcrow .sw').forEach(sw => sw.onclick = () => svcSave(sw.closest('.svcrow'), !sw.classList.contains('on')));
+  $$('.svcrow .rate').forEach(r => r.onchange = () => {
+    const row = r.closest('.svcrow'); svcSave(row, row.querySelector('.sw').classList.contains('on')); });
+
+  const apps = ['workout-gen','meal-prep','contract-manager'];
+  const out = [];
+  for (const a of apps) {
+    const s = await api(`/api/kv/${a}/snapshots`).catch(() => []);
+    out.push(`<div class="snaprow" data-app="${a}"><div class="g"><b>${a}</b>
+      <span class="ss">${s.length ? s.length+' snapshots · latest '+dt(s[0].created_at) : 'none yet'}</span></div>
+      <button class="btn-ghost snapnow">Snapshot</button>
+      ${s.length ? `<button class="btn-ghost danger snaprst" data-sid="${s[0].id}">Restore</button>`:''}</div>`);
+  }
+  $('#snaps').innerHTML = out.join('');
+  $$('.snapnow').forEach(b => b.onclick = async () => {
+    const a = b.closest('.snaprow').dataset.app;
+    const r = await api(`/api/kv/${a}/snapshot`, {method:'POST'}); toast(`${a}: ${r.keys} keys`); loadSettings(); });
+  $$('.snaprst').forEach(b => b.onclick = async () => {
+    const a = b.closest('.snaprow').dataset.app;
+    const r = await api(`/api/kv/${a}/restore/${b.dataset.sid}`, {method:'POST'}); toast(`${a}: restored ${r.keys} keys`); });
+
+  mkSelect($('#g-kind'), [['family','family'],['work','work'],['project','project']], 'family');
+  mkSelect($('#gm-r'), [['member','member'],['manager','manager']], 'member');
+  GROUPS = await api('/api/groups');
+  $('#groups').innerHTML = GROUPS.map(g => `<div class="grow-row" data-gid="${g.id}" data-n="${esc(g.name)}" data-r="${g.role}">
+    <div class="g">${esc(g.name)}<span class="us">${g.kind || ''}</span></div><span class="tag">${g.role}</span></div>`).join('')
+    || `<div class="empty">no groups</div>`;
+  $$('.grow-row').forEach(el => el.onclick = () => openGroup(el.dataset));
+
+  if (ME.is_admin) {
+    $('#admincard').classList.remove('hidden');
+    const users = await api('/api/users');
+    $('#users').innerHTML = users.map(u => `<div class="urow"><div class="g">${esc(u.username)}
+      <span class="us">joined ${day(u.created_at)}</span></div>
+      ${u.is_admin?'<span class="tag">ADMIN</span>':''}
+      ${u.must_change_pw?'<span class="tag">PENDING RESET</span>':''}
+      ${u.disabled?'<span class="tag">DISABLED</span>':''}</div>`).join('');
+  }
+}
+async function svcSave(row, on) {
+  const settings = {}; const r = row.querySelector('.rate');
+  if (r && r.value) settings.hourly_rate = parseFloat(r.value);
+  const cur = SVC.find(s => s.service === row.dataset.s)?.settings || {};
+  await api(`/api/services/${row.dataset.s}`, { method:'PUT', body: JSON.stringify({ enabled:on, settings:{...cur, ...settings} }) });
+  row.querySelector('.sw').classList.toggle('on', on);
+  SVC = await api('/api/services'); buildNav(); toast(on ? `${row.dataset.s} paired` : `${row.dataset.s} unpaired`);
+}
+$('#pw-go').onclick = async () => {
+  try { await api('/api/password', { method:'POST', body: JSON.stringify({
+      current_password: $('#pw-cur').value, new_password: $('#pw-new').value }) });
+    $('#pw-cur').value = $('#pw-new').value = ''; toast('password changed');
+  } catch (e) { toast(e.message); }
+};
+$('#nu-go').onclick = async () => {
+  try { const r = await api('/api/users', { method:'POST', body: JSON.stringify({
+      username: $('#nu-name').value.trim(), password: $('#nu-pw').value }) });
+    toast(r.warning || 'created — they set their own password'); $('#nu-name').value = $('#nu-pw').value = ''; loadSettings();
+  } catch (e) { toast(e.message); }
+};
+$('#g-go').onclick = async () => {
+  try { await api('/api/groups', { method:'POST', body: JSON.stringify({
+      name: $('#g-name').value.trim(), kind: $('#g-kind').dataset.val }) });
+    $('#g-name').value = ''; toast('group created'); loadSettings();
+  } catch (e) { toast(e.message); }
+};
+async function openGroup(d) {
+  curG = d;
+  $('#gdetail').classList.remove('hidden');
+  $('#gd-name').textContent = d.n; $('#gd-role').textContent = `you are ${d.r}`;
+  $('#gd-add').classList.toggle('hidden', !['owner','manager'].includes(d.r));
+  $('#gd-files').onclick = () => { cwd = `/group/${slug(d.n)}`; show('archive'); };
+  const rows = await api(`/api/groups/${d.gid}/work`).catch(() => []);
+  $('#gd-work').innerHTML = rows.map(s => { const h = hrs(s.started_at, s.ended_at);
+    const pay = s.hourly_rate ? ` · $${(h*s.hourly_rate).toFixed(2)}` : '';
+    return `<div class="lrow"><div class="grow"><b>${esc(s.username)}</b> — ${esc(s.activity||'work')}${s.note?' · '+esc(s.note):''}
+      <span class="sub">${dt(s.started_at)} · ${s.ended_at ? h.toFixed(1)+'h'+pay : 'on the clock'}</span></div></div>`;
+  }).join('') || `<div class="empty">no sessions logged to this group</div>`;
+}
+$('#gm-go').onclick = async () => {
+  try { await api(`/api/groups/${curG.gid}/members`, { method:'POST', body: JSON.stringify({
+      username: $('#gm-u').value.trim(), role: $('#gm-r').dataset.val }) });
+    $('#gm-u').value = ''; toast('member added');
+  } catch (e) { toast(e.message); }
 };
 
-/* ── custom controls ── */
-function cselectAll(root = document) {
-  root.querySelectorAll("select:not([data-cs])").forEach(sel => {
-    sel.dataset.cs = "1"; sel.style.display = "none";
-    const wrap = document.createElement("div"); wrap.className = "cs";
-    const btn = document.createElement("button"); btn.type = "button"; btn.className = "cs-btn";
-    const label = () => sel.options[sel.selectedIndex]?.text || "—";
-    btn.textContent = label();
-    wrap.appendChild(btn); sel.parentNode.insertBefore(wrap, sel); wrap.appendChild(sel);
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      document.querySelectorAll(".cs-menu").forEach(m => m.remove());
-      const menu = document.createElement("div"); menu.className = "cs-menu";
-      [...sel.options].forEach((o, i) => {
-        const d = document.createElement("div");
-        d.className = "cs-opt" + (i === sel.selectedIndex ? " sel" : "");
-        d.textContent = o.text;
-        d.onclick = () => { sel.selectedIndex = i; sel.dispatchEvent(new Event("change"));
-          btn.textContent = label(); menu.remove(); };
-        menu.appendChild(d);
-      });
-      wrap.appendChild(menu);
-    };
-    new MutationObserver(() => { btn.textContent = label(); })
-      .observe(sel, { childList: true });
-  });
+/* ══ custom controls ══ */
+function mkSelect(host, opts, val) {
+  host.dataset.val = val ?? (opts[0]?.[0] ?? '');
+  const label = () => (opts.find(o => o[0] === host.dataset.val) || opts[0] || ['',''])[1];
+  host.innerHTML = `<button type="button" class="selbtn">${esc(label())}</button>`;
+  host.querySelector('.selbtn').onclick = e => {
+    e.stopPropagation(); $$('.selmenu').forEach(m => m.remove());
+    const m = document.createElement('div'); m.className = 'selmenu';
+    m.innerHTML = opts.map(([v, l]) => `<div data-v="${esc(v)}" class="${v===host.dataset.val?'on':''}">${esc(l)}</div>`).join('');
+    m.querySelectorAll('div').forEach(d => d.onclick = () => {
+      host.dataset.val = d.dataset.v; host.querySelector('.selbtn').textContent = label(); m.remove();
+      host.dispatchEvent(new Event('change')); });
+    host.appendChild(m);
+  };
 }
-document.addEventListener("click", () => document.querySelectorAll(".cs-menu").forEach(m => m.remove()));
-new MutationObserver(() => cselectAll()).observe(document.body, { childList: true, subtree: true });
-cselectAll();
+document.addEventListener('click', () => $$('.selmenu').forEach(m => m.remove()));
 
-/* custom date + time pickers (dtp) */
-const DTP = {};   // id -> value ("YYYY-MM-DD" | "HH:MM")
-function dtpInit() {
-  document.querySelectorAll(".dtp-btn").forEach(btn => {
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      document.querySelectorAll(".dtp-pop").forEach(p => p.remove());
-      btn.parentNode.appendChild(btn.dataset.kind === "date" ? dtpCal(btn) : dtpTime(btn));
-    };
-  });
+function combo(host, listFn, addFn) {
+  const inp = host.querySelector('input'), menu = host.querySelector('.cmenu');
+  const draw = () => {
+    const q = inp.value.trim().toLowerCase();
+    const all = listFn();
+    const hits = all.filter(a => a.toLowerCase().includes(q));
+    menu.innerHTML = hits.map(a => `<div data-v="${esc(a)}">${esc(a)}</div>`).join('') +
+      (q && !all.some(a => a.toLowerCase() === q) ? `<div class="addnew" data-new="1">＋ add "${esc(inp.value.trim())}"</div>` : '');
+    menu.classList.toggle('hidden', !menu.innerHTML);
+    menu.querySelectorAll('div').forEach(d => d.onclick = async ev => {
+      ev.stopPropagation();
+      if (d.dataset.new) { const v = inp.value.trim(); await addFn(v); inp.value = v; }
+      else inp.value = d.dataset.v;
+      menu.classList.add('hidden');
+    });
+  };
+  inp.oninput = draw; inp.onfocus = draw;
+  document.addEventListener('click', e => { if (!e.target.closest(`#${host.id}`)) menu.classList.add('hidden'); });
 }
-document.addEventListener("click", () => document.querySelectorAll(".dtp-pop").forEach(p => p.remove()));
-function dtpCal(btn) {
-  const pop = document.createElement("div"); pop.className = "dtp-pop";
-  pop.onclick = (e) => e.stopPropagation();
-  let cur = DTP[btn.id] ? new Date(DTP[btn.id]) : new Date();
+
+const PICK = {};
+document.addEventListener('click', e => {
+  const b = e.target.closest('.pick');
+  $$('.pop').forEach(p => p.remove());
+  if (!b) return;
+  e.stopPropagation();
+  const wrap = b.parentElement;
+  if (getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+  wrap.appendChild(b.dataset.kind === 'date' ? calPop(b) : timePop(b));
+});
+function calPop(btn) {
+  const pop = document.createElement('div'); pop.className = 'pop';
+  pop.onclick = e => e.stopPropagation();
+  let cur = PICK[btn.id] ? new Date(PICK[btn.id]+'T12:00') : new Date();
   let dots = [];
-  const fetchDots = () => api(`/api/work/days?year=${cur.getFullYear()}&month=${cur.getMonth()+1}`)
+  const dotsFor = () => api(`/api/work/days?year=${cur.getFullYear()}&month=${cur.getMonth()+1}`)
     .then(d => { dots = d; paint(); }).catch(() => {});
-  const paint = () => pop.querySelectorAll(".day").forEach(el => {
-    const dd = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(el.textContent).padStart(2,"0")}`;
-    el.classList.toggle("dot", dots.includes(dd)); });
-  const render = () => {
+  const paint = () => pop.querySelectorAll('.d').forEach(el => {
+    const s = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(el.textContent).padStart(2,'0')}`;
+    el.classList.toggle('dot', dots.includes(s)); });
+  const draw = () => {
     const y = cur.getFullYear(), m = cur.getMonth();
-    const first = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
-    pop.innerHTML = `<div class="dtp-head"><button data-d="-1">‹</button>
-      <span>${cur.toLocaleString(undefined,{month:"long",year:"numeric"})}</span>
-      <button data-d="1">›</button></div>
-      <div class="dtp-grid">${["S","M","T","W","T","F","S"].map(d=>`<span class="dow">${d}</span>`).join("")}
-      ${"<span></span>".repeat(first)}
-      ${Array.from({length:days},(_,i)=>`<span class="day">${i+1}</span>`).join("")}</div>`;
-    pop.querySelectorAll(".dtp-head button").forEach(b => b.onclick = () => {
-      cur.setMonth(cur.getMonth() + +b.dataset.d); render(); fetchDots(); });
-    fetchDots();
-    pop.querySelectorAll(".day").forEach(d => d.onclick = () => {
-      const dd = String(d.textContent).padStart(2,"0"), mm = String(m+1).padStart(2,"0");
-      DTP[btn.id] = `${y}-${mm}-${dd}`;
-      btn.textContent = new Date(DTP[btn.id]+"T12:00").toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+    const first = new Date(y, m, 1).getDay(), n = new Date(y, m+1, 0).getDate();
+    pop.innerHTML = `<div class="pophead"><button data-d="-1">‹</button>
+      <span>${cur.toLocaleString(undefined,{month:'long',year:'numeric'})}</span><button data-d="1">›</button></div>
+      <div class="cal">${['S','M','T','W','T','F','S'].map(d=>`<span class="dow">${d}</span>`).join('')}
+      ${'<span></span>'.repeat(first)}${Array.from({length:n},(_,i)=>`<span class="d">${i+1}</span>`).join('')}</div>`;
+    pop.querySelectorAll('.pophead button').forEach(b => b.onclick = () => { cur.setMonth(cur.getMonth()+ +b.dataset.d); draw(); dotsFor(); });
+    pop.querySelectorAll('.d').forEach(d => d.onclick = () => {
+      const dd = String(d.textContent).padStart(2,'0'), mm = String(m+1).padStart(2,'0');
+      PICK[btn.id] = `${y}-${mm}-${dd}`;
+      btn.textContent = new Date(PICK[btn.id]+'T12:00').toLocaleDateString(undefined,{month:'short',day:'numeric'});
       pop.remove(); });
+    paint();
   };
-  render(); return pop;
+  draw(); dotsFor(); return pop;
 }
-function dtpTime(btn) {
-  const pop = document.createElement("div"); pop.className = "dtp-pop";
-  pop.onclick = (e) => e.stopPropagation();
-  const [ch, cm] = (DTP[btn.id] || "09:00").split(":").map(Number);
-  pop.innerHTML = `<div class="tp-wheels">
-    <div class="tp-col" id="tp-h">${Array.from({length:24},(_,i)=>`<div class="${i===ch?"sel":""}">${String(i).padStart(2,"0")}</div>`).join("")}</div>
-    <b>:</b>
-    <div class="tp-col" id="tp-m">${Array.from({length:12},(_,i)=>`<div class="${i*5===cm?"sel":""}">${String(i*5).padStart(2,"0")}</div>`).join("")}</div>
-  </div>`;
-  const pick = () => {
-    const h = pop.querySelector("#tp-h .sel")?.textContent || "09";
-    const m = pop.querySelector("#tp-m .sel")?.textContent || "00";
-    DTP[btn.id] = `${h}:${m}`; btn.textContent = DTP[btn.id];
+function timePop(btn) {
+  const pop = document.createElement('div'); pop.className = 'pop';
+  pop.onclick = e => e.stopPropagation();
+  const [ch, cm] = (PICK[btn.id] || '09:00').split(':').map(Number);
+  pop.innerHTML = `<div class="wheels">
+    <div class="wheel">${Array.from({length:24},(_,i)=>`<div class="${i===ch?'on':''}">${String(i).padStart(2,'0')}</div>`).join('')}</div>
+    <b>:</b><div class="wheel">${Array.from({length:12},(_,i)=>`<div class="${i*5===cm?'on':''}">${String(i*5).padStart(2,'0')}</div>`).join('')}</div></div>`;
+  const set = () => {
+    const h = pop.querySelector('.wheel:first-child .on')?.textContent || '09';
+    const m = pop.querySelector('.wheel:last-child .on')?.textContent || '00';
+    PICK[btn.id] = `${h}:${m}`; btn.textContent = PICK[btn.id];
   };
-  pop.querySelectorAll(".tp-col div").forEach(d => d.onclick = () => {
-    d.parentNode.querySelectorAll("div").forEach(x => x.classList.remove("sel"));
-    d.classList.add("sel"); pick(); });
+  pop.querySelectorAll('.wheel div').forEach(d => d.onclick = () => {
+    d.parentNode.querySelectorAll('div').forEach(x => x.classList.remove('on'));
+    d.classList.add('on'); set(); });
   return pop;
 }
-dtpInit();
 
-/* telegram-style drop overlay (dump view) */
-let dragDepth = 0;
-addEventListener("dragenter", (e) => {
-  if (curView !== "dump" || !e.dataTransfer?.types.includes("Files")) return;
-  dragDepth++; $("#dropzone").classList.remove("hidden");
-});
-addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("#dropzone").classList.add("hidden"); } });
-addEventListener("dragover", (e) => e.preventDefault());
-["dz-orig","dz-quick"].forEach(id => {
-  const el = document.getElementById(id);
-  el.addEventListener("dragover", () => el.classList.add("hot"));
-  el.addEventListener("dragleave", () => el.classList.remove("hot"));
-  el.addEventListener("drop", async (e) => {
-    e.preventDefault(); dragDepth = 0;
-    $("#dropzone").classList.add("hidden"); el.classList.remove("hot");
-    for (const f of e.dataTransfer.files)
-      await dumpUpload(id === "dz-quick" ? await maybeCompress(f) : f);
-  });
-});
-addEventListener("drop", (e) => { e.preventDefault(); dragDepth = 0; $("#dropzone").classList.add("hidden"); });
-async function maybeCompress(f) {
-  if (!/^image\/(jpeg|png|webp)$/.test(f.type)) return f;
-  const img = await createImageBitmap(f);
-  const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
-  if (scale === 1 && f.type === "image/jpeg") return f;
-  const c = document.createElement("canvas");
-  c.width = img.width * scale; c.height = img.height * scale;
-  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-  const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.82));
-  return new File([blob], f.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" });
-}
-async function dumpUpload(f) {
-  const grp = curChat ? MYGROUPS.find(g => g.id === curChat) : null;
-  if (curPeer) { toast("file DMs need a share-space — coming"); return; }
-  const base = grp ? `/group/${chatSlug(grp.name)}` : `/vault/${ME.username}`;
-  const fname = `dump-${Date.now().toString(36)}-${f.name}`;
-  toast(`uploading ${f.name}…`);
-  const r = await fetch(`${CP}/up${encodeURI(base)}/${encodeURIComponent(fname)}`,
-    { method: "PUT", headers: { "PW": ME.file_token }, body: f });
-  if (!r.ok) { toast(`upload failed (${r.status})`); return; }
-  await api("/api/dump", { method: "POST", body: JSON.stringify({
-    content: f.name, file_path: `${base}/${fname}`, group_id: curChat }) });
-  loadDump(); refreshBadge();
-}
-
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 boot();

@@ -74,3 +74,41 @@ work visibility, and shared dumps are all instances of it. Tested end-to-end
 External-app integration pattern: existing GitHub PWAs (meal-prep,
 workout-gen) swap their localStorage layer for these APIs to join the
 ecosystem; they can be served as static apps under the platform later.
+
+## 2026-07-08 — Nook replaces the PWA UI
+
+The Nook design (Claude Design artifact, `Nook.dc.html`) was NOT deployable:
+its runtime (`support.js`) fetches React 18 + ReactDOM + Babel from unpkg.com
+at page load, and its 716 `{{ }}` bindings / 105 `<sc-for>` / 72 `<sc-if>` all
+target hardcoded mock state — zero `/api/` calls. Shipping it verbatim would
+have produced a beautiful dead UI that also breaks the LAN-only requirement.
+
+**Ported instead**: theme engine lifted exactly (3 paper tones × light/dark ×
+flat/soft/glass surfaces, accent pair #6f7d55/#aebd88, `color-mix` highlight),
+rendered as vanilla JS/CSS. No React, no Babel, no CDN runtime, no build step —
+consistent with the existing deploy model (`git pull` and done).
+
+Theme prefs persist per-user server-side via `/api/kv/nook` (localStorage is
+only a first-paint cache).
+
+Font: Courier Prime is loaded from Google Fonts with a system-mono fallback.
+Run `setup/vendor-font.sh` once on the server to self-host it — required for
+true offline/LAN-only rendering.
+
+### Open fork (needs a decision before more UI work)
+Nook ships its own full Workout, Meal Prep, and Contractor screens (~70% of the
+prototype's markup). These duplicate the ported GitHub apps, which hold the real
+data and mature logic (workout-gen: anchors, strength progression, 4 weeks of
+training history). Three options:
+  a. Sidebar links out to the ported apps (current behavior — chosen for now).
+     Nook's designs for those three go unused; zero data risk.
+  b. Reimplement all three inside Nook. Large; requires migrating workout-gen's
+     schema; risks the training data the user has said cannot be lost.
+  c. Port Nook's three screens as *views over the same KV data* the apps already
+     write. No migration, preserves data, but requires reading each app's model.
+Recommendation: (c), after (a) is confirmed stable and a snapshot exists.
+
+### Not built (no backend source)
+Shelf → Audiobooks and Podcasts have no server-side source; they show an honest
+empty state. Books reads PDFs/EPUBs from the vault + `/storage/pool/docs`;
+Music reads `/storage/pool/music`. Both via copyparty `?ls`.
