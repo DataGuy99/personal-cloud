@@ -428,13 +428,15 @@ document.addEventListener('click', e => {
 async function loadShelf() {
   const el = $('#shelf');
   el.innerHTML = `<div class="empty">reading the shelf…</div>`;
-  if (shMode === 'audiobooks' || shMode === 'podcasts') {
-    el.innerHTML = `<div class="empty">no ${shMode} source yet — nothing on the server feeds this</div>`;
-    return;
-  }
-  const cfg = shMode === 'books'
-    ? { paths: [`/vault/${ME.username}`, '/public/docs'], re: /\.(pdf|epub|mobi|azw3)$/i }
-    : { paths: ['/public/music'], re: /\.(mp3|flac|ogg|m4a|wav)$/i };
+  const AUDIO = /\.(mp3|flac|ogg|m4a|wav|opus)$/i;
+  const SHELVES = {
+    books:      { paths: [`/vault/${ME.username}`, '/public/books', '/public/docs'],
+                  re: /\.(pdf|epub|mobi|azw3)$/i },
+    music:      { paths: ['/public/music'],      re: AUDIO },
+    audiobooks: { paths: ['/public/audiobooks'], re: AUDIO },
+    podcasts:   { paths: ['/public/podcasts'],   re: AUDIO },
+  };
+  const cfg = SHELVES[shMode] || SHELVES.books;
   let items = [];
   for (const p of cfg.paths) items = items.concat(await walk(p, 2, cfg.re, true).catch(() => []));
   el.innerHTML = items.slice(0, 120).map(f => {

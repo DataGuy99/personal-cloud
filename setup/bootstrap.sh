@@ -169,11 +169,11 @@ fi
 if ! done_step "06-dirs"; then
   step "6/16 — Service User & Directories"
   id -u copyparty &>/dev/null || /usr/sbin/useradd -r -s /usr/sbin/nologin -m -d /var/lib/copyparty copyparty
-  mkdir -p /storage/pool/{movies,tv,music,photos,memes,docs}
+  mkdir -p /storage/pool/{movies,tv,music,photos,books,audiobooks,podcasts,memes,docs}
   mkdir -p /staging
   mkdir -p /staging/vault/{alice,bob,sil}
   mkdir -p /staging/shared/{work,baking}
-  mkdir -p /staging/public/{movies,tv,music,photos,unknown}
+  mkdir -p /staging/public/{movies,tv,music,photos,books,audiobooks,podcasts,unknown}
   mkdir -p /groups /staging/group
   mkdir -p /incoming/{movies,tv,music,photos,memes,docs,unknown,anonymous}
   mkdir -p /incoming/.archive /incoming/.quarantine
