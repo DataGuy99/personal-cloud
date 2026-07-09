@@ -1,8 +1,8 @@
 /* ═══ NOOK — wired to live /api + copyparty ═══ */
 const CP = `${location.protocol}//${location.hostname}:3923`;
-let ME=null, SVC=[], MYGROUPS=[], UI={theme:'light',tone:'warm',surface:'flat'};
+let ME=null, SVC=[], MYGROUPS=[], UI={theme:'light'};
 let curView='home', WSESS=[], DTP={}, tTick=null, incMode='w';
-let feedFilter='all', composeKind='text', shMode='books', medMode='mine';
+let shMode='books', medMode='mine';
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -15,14 +15,16 @@ const tm=t=>new Date(t*1000).toLocaleTimeString(undefined,{hour:'2-digit',minute
 const hrs=(a,b)=>(((b||Date.now()/1000)-a)/3600);
 
 /* ── theme ── */
-function applyUI(){const h=document.documentElement;h.dataset.theme=UI.theme;h.dataset.tone=UI.tone;h.dataset.surface=UI.surface;
-  document.querySelector('meta[name=theme-color]').content=getComputedStyle(h).getPropertyValue('--bg').trim();}
+function applyUI(){document.documentElement.dataset.theme=UI.theme;
+  const tb=$('#theme-btn');if(tb)tb.textContent=UI.theme==='light'?'\u263e':'\u2600';
+  document.querySelector('meta[name=theme-color]').content=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();}
 function saveUI(){applyUI();api('/api/kv/nook',{method:'PUT',body:JSON.stringify({ui:JSON.stringify(UI)})}).catch(()=>{});}
 
 /* ── auth ── */
 async function boot(){try{ME=await api('/api/me');await afterLogin();}catch{$('#v-lock').classList.remove('hidden');}}
 $('#lg-btn').onclick=async()=>{try{ME=await api('/api/login',{method:'POST',body:JSON.stringify({username:$('#lg-user').value.trim(),password:$('#lg-pass').value})});$('#v-lock').classList.add('hidden');await afterLogin();}catch{$('#lg-err').textContent='wrong username or password';}};
 $('#lg-pass').addEventListener('keydown',e=>{if(e.key==='Enter')$('#lg-btn').click();});
+$('#lg-eye').onclick=()=>{const p=$('#lg-pass');p.type=p.type==='password'?'text':'password';};
 $('#sp-btn').onclick=async()=>{const a=$('#sp-a').value,b=$('#sp-b').value;if(a!==b){$('#sp-err').textContent="passwords don't match";return;}if(a.length<8){$('#sp-err').textContent='min 8 characters';return;}try{await api('/api/password',{method:'POST',body:JSON.stringify({new_password:a})});ME.must_change_pw=false;$('#v-setpw').classList.add('hidden');await afterLogin();}catch(e){$('#sp-err').textContent=e.message;}};
 
 async function afterLogin(){
@@ -33,6 +35,7 @@ async function afterLogin(){
   $('#v-app').classList.remove('hidden');
   MYGROUPS=await api('/api/groups').catch(()=>[]);
   SVC=await api('/api/services').catch(()=>[]);
+  $('#side-name').textContent=ME.username;
   buildNav();
   show('home');
   badge();setInterval(badge,15000);
@@ -40,19 +43,16 @@ async function afterLogin(){
 $('#logout').onclick=async()=>{await api('/api/logout',{method:'POST'});location.reload();};
 
 /* ── nav ── */
-const CORE=[['home','Home','◈'],['archive','Archive','▤'],['photos','Photos','▣'],['shelf','Shelf','▥']];
-const SVCNAV={work:['hours','Hours','◷'],fitness:['workout','Workout','◍'],meals:['meal','Meal Prep','◐'],sleep:['sleep','Sleep','☾'],journal:['journal','Journal','✎']};
+const CORE=[['home','Stream'],['archive','Archive'],['photos','Photos'],['shelf','Shelf']];
+const SVCNAV={work:['hours','Hours'],fitness:['workout','Workout'],meals:['meal','Meal Prep'],sleep:['sleep','Sleep'],journal:['journal','Journal']};
 const SVCAPP={workout:'workout-gen',meal:'meal-prep',contractor:'contract-manager'};
-const TITLES={home:'Home',archive:'Archive',photos:'Photos',shelf:'Shelf',hours:'Hours',sleep:'Sleep',journal:'Journal',review:'Review',settings:'Settings'};
-
+const TITLES={home:'Stream',archive:'Archive',photos:'Photos',shelf:'Shelf',hours:'Hours',sleep:'Sleep',journal:'Journal',review:'Review',settings:'Settings'};
+const NAVDOT={home:'var(--accent)',hours:'var(--a-work)',archive:'var(--a-video)',photos:'var(--a-photo)',shelf:'var(--a-audio)',sleep:'var(--a-idea)',journal:'var(--a-note)',review:'var(--a-todo)',settings:'var(--ink-3)',workout:'var(--a-workout)',meal:'var(--a-meal)',contractor:'var(--a-file)'};
 function buildNav(){
-  const paired=SVC.filter(s=>s.enabled).map(s=>s.service);
-  const items=[...CORE];
-  paired.forEach(s=>SVCNAV[s]&&items.push(SVCNAV[s]));
-  items.push(['contractor','Contractor','◰'],['review','Review','◇']);
-  $('#nav').innerHTML=`<div class="navsec">Spaces</div>`+items.map(([v,l,i])=>
-    `<button class="navitem" data-view="${v}"><span class="ni">${i}</span><span>${l}</span>${v==='review'?'<em class="badge hidden" id="pbadge"></em>':''}</button>`).join('')
-    +`<div class="navsec">System</div><button class="navitem" data-view="settings"><span class="ni">⚙</span><span>Settings</span></button>`;
+  const paired=SVC.filter(x=>x.enabled).map(x=>x.service);
+  const items=[...CORE];paired.forEach(x=>SVCNAV[x]&&items.push(SVCNAV[x]));
+  items.push(['contractor','Contractor'],['review','Review'],['settings','Settings']);
+  $('#nav').innerHTML=items.map(([v,l])=>`<button class="navitem" data-view="${v}"><span class="dot" style="background:${NAVDOT[v]||'var(--ink-3)'}"></span><span style="flex:1">${l}</span>${v==='review'?'<span class="cnt hidden" id="pbadge"></span>':''}</button>`).join('');
   $$('.navitem').forEach(b=>b.onclick=()=>{const v=b.dataset.view;if(SVCAPP[v])return location.href=`/apps/${SVCAPP[v]}/`;show(v);closeNav();});
 }
 function show(v){
@@ -61,6 +61,8 @@ function show(v){
   $(`#w-${v}`)?.classList.remove('hidden');
   $$('.navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
   $('#mtitle').textContent=TITLES[v]||v;
+  $('#brand-title').textContent=TITLES[v]||'Nook';
+  ['facetzone','tagzone','peoplezone'].forEach(z=>{const el=$('#'+z);if(el)el.classList.toggle('hidden',v!=='home');});
   ({home:loadHome,hours:loadHours,archive:loadArchive,photos:loadPhotos,shelf:loadShelf,sleep:loadSleep,journal:loadJournal,review:loadReview,settings:loadSettings}[v]||(()=>{}))();
 }
 $('#menu-btn').onclick=()=>{$('#side').classList.add('open');$('#veil').classList.add('on');};
@@ -88,195 +90,283 @@ async function runSearch(){
   $$('.sres[data-vp]').forEach(el=>el.onclick=()=>window.open(`${CP}/${encodeURI(el.dataset.vp)}?pw=${ME.file_token}`,'_blank'));
 }
 
-/* ══ HOME — glance pins + compose + masonry typed feed ══ */
-const FILTERS=[['all','All'],['note','Notes'],['todo','Todos'],['photo','Photos'],['video','Video'],['link','Links'],['file','Files']];
-const CMPKINDS=[['text','Note'],['todo','Todo'],['link','Link'],['file','Drop']];
+/* ══ STREAM (Home rework) ══ */
+const RESERVED={todo:'todo',task:'todo',workout:'workout',lift:'workout',run:'workout',meal:'meal',food:'meal',work:'work',idea:'idea',note:'note',link:'link'};
+const KMETA={note:{label:'Note',icon:'M4 20h4L18 8l-4-4L4 16z'},todo:{label:'To-do',icon:'M5 13l4 4L19 7'},workout:{label:'Workout',icon:'M3 12h4l3 8 4-16 3 8h4'},meal:{label:'Meal',icon:'M4 11h16a8 8 0 01-16 0z'},work:{label:'Work',icon:'M4 8h16v11H4z M9 8V6a2 2 0 012-2h2a2 2 0 012 2v2'},idea:{label:'Idea',icon:'M9 18h6M10 21h4M12 3a6 6 0 013 11v1H9v-1a6 6 0 013-11z'},photo:{label:'Photo',icon:'M3 5h18v14H3z M3 15l5-5 4 4 3-3 5 5'},link:{label:'Link',icon:'M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1 M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1'},audio:{label:'Audio',icon:'M9 18V5l10-2v13 M9 18a3 3 0 11-6 0 3 3 0 016 0 M19 16a3 3 0 11-6 0 3 3 0 016 0'},video:{label:'Video',icon:'M8 6l10 6-10 6z'},file:{label:'File',icon:'M6 3h8l4 4v14H6z M14 3v5h5'}};
+const SOLID={todo:'var(--card-todo)',meal:'var(--card-meal)',workout:'var(--card-workout)',work:'var(--card-work)',idea:'var(--card-idea)'};
+const AC=k=>`var(--a-${k})`;
+let SF={type:'all',tag:null,person:null,query:'',date:null},FEED=[],draftFiles=[],expandedId=null,editingId=null,calMonth=null,calOpen=false;
+const isUrl=t=>{t=(t||'').trim();return /^(https?:\/\/|www\.)\S+$/i.test(t)&&!/\s/.test(t);};
+const hostOf=u=>{try{return new URL(/^https?:/i.test(u)?u:'https://'+u).hostname.replace(/^www\./,'');}catch{return u;}};
+const fileKind=n=>{const e=((n||'').split('.').pop()||'').toLowerCase();const m={pdf:['PDF','#c65b52'],doc:['DOC','#3f6fb0'],docx:['DOC','#3f6fb0'],xls:['XLS','#4e8a5b'],xlsx:['XLS','#4e8a5b'],csv:['CSV','#4e8a5b'],ppt:['PPT','#c17d3f'],pptx:['PPT','#c17d3f'],zip:['ZIP','#8a7fa8'],txt:['TXT','#7a746a'],md:['MD','#7a746a'],json:['JSON','#7a746a']};return m[e]?{kind:m[e][0],color:m[e][1]}:{kind:(e||'FILE').toUpperCase().slice(0,4),color:'#5f7fb0'};};
+const personColor=n=>{const p=['#c8763a','#5a9e64','#8974cf','#d96fa1','#3fa091','#dd8250','#5f7fb0'];let h=0;for(let i=0;i<n.length;i++)h=(h*31+n.charCodeAt(i))>>>0;return p[h%p.length];};
+const dayKey=ts=>{const d=new Date(ts*1000);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+function parseDraft(t){
+  const tags=[],people=[];let category=null,due=null;
+  const text=(t||'').replace(/\/\/(@?[\w:-]+)/g,(_,tok)=>{
+    if(tok.startsWith('@')){people.push(tok.slice(1));return '';}
+    if(tok.startsWith('due:')){due=tok.slice(4);return '';}
+    const low=tok.toLowerCase();
+    if(RESERVED[low]){if(!category)category=RESERVED[low];return '';}
+    tags.push(low);return '';
+  }).replace(/\s+/g,' ').trim();
+  return {text,tags,people,category,due};
+}
+function kindOf(m){
+  const meta=entMeta(m);
+  if(meta.cmd)return meta.cmd;
+  if(m.kind==='link')return 'link';
+  if(m.kind==='file'){const f=m.file_path||'';if(/\.(jpe?g|png|gif|webp)$/i.test(f))return 'photo';if(/\.(mp4|webm|mov|m4v)$/i.test(f))return 'video';if(/\.(mp3|flac|ogg|m4a|wav|opus)$/i.test(f))return 'audio';return 'file';}
+  return 'note';
+}
+function entMeta(m){try{return JSON.parse(m.meta||'{}');}catch{return {};}}
 async function loadHome(){
-  const h=new Date().getHours();
-  $('#greeting').textContent=(h<12?'Good morning':h<18?'Good afternoon':'Good evening')+', '+ME.username;
-  // glance pins from live data
-  const ins=await api('/api/insights/today').catch(()=>({}));
-  const pend=await api(`/api/pending${ME.is_admin?'?all=1':''}`).catch(()=>[]);
-  const pins=[
-    {tag:'Today',b:ins.est_total_burn_kcal?`${ins.est_total_burn_kcal} kcal`:'—',s:ins.note?'log metrics':'est. burn',accent:false},
-    {tag:'Worked',b:ins.work_hours?`${ins.work_hours}h`:'0h',s:ins.earnings?`$${ins.earnings}`:'today',accent:true},
-    {tag:'Review',b:String(pend.filter(p=>p.status==='flagged').length),s:'flagged files',accent:false},
-  ];
-  $('#pins').innerHTML=pins.map(p=>`<div class="pin${p.accent?' accentpin':''}"><div class="tag">${p.tag}</div><div class="b">${esc(p.b)}</div><div class="s">${esc(p.s)}</div></div>`).join('');
-  $('#cmp-chips').innerHTML=CMPKINDS.map(([k,l])=>`<button class="chip${composeKind===k?' on':''}" data-k="${k}">${l}</button>`).join('');
-  $$('#cmp-chips .chip').forEach(b=>b.onclick=()=>{composeKind=b.dataset.k;openCompose();loadHome();});
-  $('#feed-filters').innerHTML=FILTERS.map(([k,l])=>`<button class="chip${feedFilter===k?' on':''}" data-f="${k}">${l}</button>`).join('');
-  $$('#feed-filters .chip').forEach(b=>b.onclick=()=>{feedFilter=b.dataset.f;renderFeed();});
-  await renderFeed();
+  const n=new Date(),h=n.getHours();
+  $('#hd-kick').textContent=h<12?'Good morning':h<18?'Good afternoon':'Good evening';
+  $('#hd-week').textContent=n.toLocaleDateString(undefined,{weekday:'long'});
+  if(!calMonth)calMonth=new Date(n.getFullYear(),n.getMonth(),1).getTime();
+  $('#cmdchips').innerHTML=[['//todo','todo'],['//workout','workout'],['//meal','meal'],['//work','work'],['//idea','idea']].map(([c,k])=>`<button class="cmdchip" data-cmd="${c}" style="color:${AC(k)}">${c}</button>`).join('');
+  $$('#cmdchips .cmdchip').forEach(b=>b.onclick=()=>{const ta=$('#cmp-ta');ta.value+=(ta.value&&!/\s$/.test(ta.value)?' ':'')+b.dataset.cmd+' ';ta.focus();onDraftInput();});
+  await refreshStream();
 }
-let FEED=[];
-async function renderFeed(){
+async function refreshStream(){
   FEED=await api('/api/dump').catch(()=>[]);
-  const items=FEED.filter(m=>{if(feedFilter==='all')return true;
-    if(feedFilter==='note')return m.kind==='text';
-    if(feedFilter==='todo')return m.kind==='todo';
-    if(feedFilter==='link')return m.kind==='link';
-    if(feedFilter==='file')return m.kind==='file'&&/\.(pdf|docx?|txt|md|epub|zip)$/i.test(m.file_path||'');
-    if(feedFilter==='photo')return m.kind==='file'&&/\.(jpe?g|png|gif|webp)$/i.test(m.file_path||'');
-    if(feedFilter==='video')return m.kind==='file'&&/\.(mp4|webm|mov|m4v)$/i.test(m.file_path||'');
-    return true;});
-  $('#feed').innerHTML=items.slice().reverse().map(feedCard).join('')||`<div class="empty">nothing in your stream yet</div>`;
-  wireFeed();
+  $('#hd-date').textContent=new Date().toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'})+' · '+FEED.length+' captures';
+  renderSidebarFacets();renderStream();badge();
 }
-function feedCard(m){
-  let meta={};try{meta=JSON.parse(m.meta||'{}');}catch{}
-  const blur=meta.sensitive?' blur':'';
-  const tag=m.kind==='text'?'note':m.kind;
+function renderSidebarFacets(){
+  const counts={all:FEED.length};FEED.forEach(m=>{const k=kindOf(m);counts[k]=(counts[k]||0)+1;});
+  const order=['all','note','todo','workout','meal','work','idea','photo','video','audio','link','file'];
+  const fz=order.filter(k=>k==='all'||counts[k]);
+  $('#facetzone').innerHTML=`<div class="sechead">Stream</div><div class="navlist">`+fz.map(k=>`<button class="navitem ${SF.type===k?'on':''}" data-facet="${k}"><span class="dot" style="background:${k==='all'?'var(--ink)':AC(k)}"></span><span style="flex:1">${k==='all'?'Everything':KMETA[k].label+'s'}</span><span class="cnt">${counts[k]||0}</span></button>`).join('')+`</div>`;
+  $('#facet-row').innerHTML=fz.map(k=>`<button class="facetchip ${SF.type===k?'on':''}" data-facet="${k}"><span class="dot" style="background:${k==='all'?'currentColor':AC(k)}"></span>${k==='all'?'All':KMETA[k].label}<span style="opacity:.6;font:600 10px 'JetBrains Mono',monospace">${counts[k]||0}</span></button>`).join('');
+  $$('[data-facet]').forEach(b=>b.onclick=()=>{SF.type=b.dataset.facet;renderSidebarFacets();renderStream();});
+  const tags={},people={};
+  FEED.forEach(m=>{const x=entMeta(m);(x.tags||[]).forEach(t=>tags[t]=(tags[t]||0)+1);(x.people||[]).forEach(p=>people[p]=(people[p]||0)+1);});
+  $('#tagzone').innerHTML=Object.keys(tags).length?`<div class="sechead">Tags</div><div class="tagwrap">`+Object.entries(tags).map(([t,c])=>`<button class="tagpill ${SF.tag===t?'on':''}" data-tag="${esc(t)}">//${esc(t)}<span style="opacity:.65;font:600 9.5px 'JetBrains Mono',monospace">${c}</span></button>`).join('')+`</div>`:'';
+  $('#peoplezone').innerHTML=Object.keys(people).length?`<div class="sechead">People</div><div class="tagwrap">`+Object.keys(people).map(p=>`<button class="tagpill ${SF.person===p?'on':''}" data-person="${esc(p)}"><span style="width:19px;height:19px;border-radius:50%;background:${personColor(p)};color:#fff;display:inline-flex;align-items:center;justify-content:center;font:700 9px 'JetBrains Mono',monospace">${esc(p[0].toUpperCase())}</span>@${esc(p)}</button>`).join('')+`</div>`:'';
+  $$('[data-tag]').forEach(b=>b.onclick=e=>{e.stopPropagation();SF.tag=SF.tag===b.dataset.tag?null:b.dataset.tag;renderSidebarFacets();renderStream();});
+  $$('[data-person]').forEach(b=>b.onclick=()=>{SF.person=SF.person===b.dataset.person?null:b.dataset.person;renderSidebarFacets();renderStream();});
+}
+function renderStream(){
+  let items=FEED.filter(m=>{
+    const k=kindOf(m),x=entMeta(m);
+    if(SF.type!=='all'&&k!==SF.type)return false;
+    if(SF.tag&&!(x.tags||[]).includes(SF.tag))return false;
+    if(SF.person&&!(x.people||[]).includes(SF.person))return false;
+    if(SF.date&&dayKey(m.created_at)!==SF.date)return false;
+    if(SF.query){const q=SF.query.toLowerCase();if(!((m.content||'')+' '+(m.file_path||'')).toLowerCase().includes(q))return false;}
+    return true;
+  });
+  const chips=[];
+  if(SF.type!=='all')chips.push(['type',KMETA[SF.type].label]);
+  if(SF.tag)chips.push(['tag','//'+SF.tag]);if(SF.person)chips.push(['person','@'+SF.person]);
+  if(SF.query)chips.push(['query',SF.query]);if(SF.date)chips.push(['date',SF.date]);
+  $('#filterbar').classList.toggle('hidden',!chips.length);
+  if(chips.length)$('#filterbar').innerHTML=`<span>Filter</span>`+chips.map(([k,l])=>`<button class="fchipx" data-clr="${k}">${esc(l)} ✕</button>`).join('')+`<button class="fchipx" data-clr="all" style="border:none;color:var(--accent)">Clear all</button><span style="flex:1"></span><span style="text-transform:none;letter-spacing:0">${items.length} results</span>`;
+  $$('#filterbar [data-clr]').forEach(b=>b.onclick=()=>{const k=b.dataset.clr;
+    if(k==='all')SF={type:'all',tag:null,person:null,query:'',date:null};
+    else{if(k==='type')SF.type='all';if(k==='tag')SF.tag=null;if(k==='person')SF.person=null;if(k==='query'){SF.query='';$('#hq').value='';}if(k==='date')SF.date=null;}
+    $('#cal-label').textContent=SF.date||'All dates';renderSidebarFacets();renderStream();});
+  if(!items.length){$('#stream').innerHTML=`<div class="emptywrap"><div class="ei"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></div><div class="et">${FEED.length?'Nothing matches':'Your stream is empty'}</div><div class="eb">${FEED.length?'Loosen a filter or clear the search.':'Write a note, paste a link, or drop a file above.'}</div></div>`;return;}
+  const groups={};items.forEach(m=>{(groups[dayKey(m.created_at)]??=[]).push(m);});
+  const todayK=dayKey(Date.now()/1000),ydK=dayKey(Date.now()/1000-86400);
+  $('#stream').innerHTML=Object.keys(groups).sort().reverse().map(k=>{
+    const es=groups[k].sort((a,b)=>((entMeta(b).pinned?1:0)-(entMeta(a).pinned?1:0))||b.created_at-a.created_at);
+    const d=new Date(k+'T12:00');
+    const label=k===todayK?'Today':k===ydK?'Yesterday':d.toLocaleDateString(undefined,{month:'long',day:'numeric'});
+    return `<div class="dayhead"><span class="dl">${label}</span><span class="ds">${d.toLocaleDateString(undefined,{weekday:'short'})} · ${es.length}</span><span class="rule"></span></div>`+es.map(entryCard).join('');
+  }).join('');
+  wireStream();
+}
+function entryCard(m){
+  const k=kindOf(m),x=entMeta(m),meta=KMETA[k]||KMETA.note;
+  const exp=expandedId==m.id,edit=editingId==m.id;
+  const solid=SOLID[k],cardBg=solid||'var(--panel)',frost=solid?'none':'blur(12px)';
   const url=m.file_path?`${CP}${encodeURI(m.file_path)}?pw=${ME.file_token}`:'';
+  const done=!!x.done,sens=!!x.sensitive;
+  const headline=m.kind==='link'?hostOf(m.content):(m.content||(m.file_path||'').split('/').pop()||'—');
+  const chipBg=solid?'rgba(0,0,0,.07)':'var(--surface)';
+  let metaChip='';
+  if(k==='photo')metaChip=`<img class="thumb${sens?' blur':''}" src="${url}" onerror="this.replaceWith('⏳')">`;
+  else if(m.kind==='file'&&k==='file')metaChip=`<span class="metachip" style="background:${chipBg};color:${AC(k)}">${fileKind(m.file_path).kind}</span>`;
   let body='';
-  if(m.kind==='text')body=`<div class="f-note">${esc(m.content)}</div>`;
-  else if(m.kind==='link')body=`<a class="f-link" href="${esc(m.content)}" target="_blank"><span class="ic">&#128279;</span><span style="min-width:0"><span class="t">${esc(m.content)}</span><span class="d">${esc((m.content||'').replace(/^https?:\/\//,'').split('/')[0])}</span></span></a>`;
-  else if(m.kind==='todo'){let td={};try{td=JSON.parse(m.content);}catch{}
-    body=`<div class="f-title">${esc(td.title||'Todo')}</div><div class="todos">${(td.items||[]).map((it,i)=>`<div class="todo${it.done?' done':''}" data-id="${m.id}" data-i="${i}"><span class="dot">${it.done?'✓':''}</span><span class="lb">${esc(it.label)}</span></div>`).join('')}</div>`;}
-  else if(m.kind==='share'){let p={};try{p=JSON.parse(m.content);}catch{}
-    body=`<div class="sharecard"><div class="st">${p.type==='workout'?'🏋 ':p.type==='recipe'||p.type==='meal'?'🥘 ':'📦 '}${esc(p.title||p.type||'shared')}</div><div class="ss">from ${esc(p.app||'?')}</div><button class="sh-save" data-json='${esc(m.content)}'>Save to my ${esc(p.app||'apps')}</button></div>`;}
-  else if(m.kind==='file'){const nm=meta.showname===false?'':`<div class="f-cap">${esc(m.content||'')}</div>`;
-    if(/\.(jpe?g|png|gif|webp)$/i.test(m.file_path))body=`<img class="f-media${blur}" src="${url}" data-url="${url}" loading="lazy">${nm}`;
-    else if(/\.(mp4|webm|mov|m4v)$/i.test(m.file_path))body=`<div class="vidwrap"><video class="f-media dvid${blur}" src="${url}" muted loop playsinline preload="metadata"></video></div>${nm}`;
-    else{const ext=(m.file_path.split('.').pop()||'FILE').toUpperCase();body=`<a class="f-file" href="${url}" target="_blank"><span class="sheet">${esc(ext.slice(0,4))}</span><span style="min-width:0"><span class="t">${esc(m.content||m.file_path.split('/').pop())}</span></span></a>`;}}
-  const who=(curView==='home'&&m.username!==ME.username)?`<div class="who">${esc(m.username)}</div>`:'';
-  return `<div class="fcard${meta.important?' important':''}" data-id="${m.id}" data-mine="${m.username===ME.username?1:0}" data-kind="${m.kind}" data-sens="${meta.sensitive?1:0}" data-name="${meta.showname===false?0:1}">
-    <div class="fhead"><span class="tag">${esc(tag)}</span><span class="rt"><span class="time">${tm(m.created_at)}</span>${m.username===ME.username?`<button class="menu" data-menu="${m.id}">⋯</button>`:''}</span></div>
-    ${who}${body}</div>`;
+  if(exp&&edit){
+    body=`<div class="ebody"><textarea class="editbox" id="editbox">${esc(srcOf(m))}</textarea>
+      <div class="row"><button class="sbtn" data-saveedit="${m.id}">Save</button><button class="ebtn" data-canceledit="1">Cancel</button></div></div>`;
+  }else if(exp){
+    const parts=[];
+    if(m.kind==='text'&&m.content)parts.push(`<div class="etext">${esc(m.content)}</div>`);
+    if(k==='photo')parts.push(`<div class="photogrid2" style="grid-template-columns:1fr"><img class="${sens?'blur':''}" src="${url}" data-url="${url}" onerror="this.replaceWith('still scanning — refresh soon')"></div>`);
+    if(k==='video')parts.push(`<video class="${sens?'blur':''}" src="${url}" controls playsinline preload="metadata"></video>`);
+    if(k==='audio')parts.push(`<div class="mediarow"><span class="sq" style="background:${AC('audio')}">♪</span><div class="g"><div class="t">${esc(m.content||'')}</div><audio src="${url}" controls></audio></div></div>`);
+    if(k==='file'&&m.kind==='file'){const fk=fileKind(m.file_path);parts.push(`<a class="mediarow" href="${url}" download><span class="sq" style="background:${fk.color}">${fk.kind}</span><div class="g"><div class="t">${esc(m.content||m.file_path.split('/').pop())}</div><div class="s">tap to download</div></div></a>`);}
+    if(m.kind==='link')parts.push(`<a class="mediarow" href="${esc(m.content)}" target="_blank" rel="noopener"><span class="sq" style="background:${AC('link')}">↗</span><div class="g"><div class="t">${esc(hostOf(m.content))}</div><div class="s" style="color:var(--accent)">${esc(m.content)}</div></div></a>`);
+    if((x.people||[]).length)parts.push(`<div style="display:flex;gap:6px;flex-wrap:wrap">${x.people.map(p=>`<span class="tagpill" style="cursor:default"><span style="width:19px;height:19px;border-radius:50%;background:${personColor(p)};color:#fff;display:inline-flex;align-items:center;justify-content:center;font:700 9px 'JetBrains Mono',monospace">${esc(p[0].toUpperCase())}</span>@${esc(p)}</span>`).join('')}</div>`);
+    if(x.due)parts.push(`<div class="metachip" style="align-self:flex-start;background:${chipBg};color:${AC(k)}">due ${esc(x.due)}</div>`);
+    parts.push(`<div class="eactions"><span class="when">${dt(m.created_at)}</span><span style="flex:1"></span>
+      ${m.kind==='text'?`<button class="ebtn" data-edit="${m.id}">Edit</button>`:''}
+      ${m.kind==='file'?`<button class="ebtn" data-sens="${m.id}">${sens?'Unblur':'Mark sensitive'}</button>`:''}
+      <button class="eicon ${x.pinned?'pinned':''}" data-pin="${m.id}" title="Pin">⚲</button>
+      <button class="eicon" data-del="${m.id}" title="Delete">🗑</button></div>`);
+    body=`<div class="ebody">${parts.join('')}</div>`;
+  }
+  return `<div class="entry"><div class="tcol">${tm(m.created_at)}</div>
+    <div class="railcol"><div class="rl"></div><div class="nd" style="background:${AC(k)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${meta.icon}"/></svg></div></div>
+    <div class="ecard" style="background:${cardBg};backdrop-filter:${frost};-webkit-backdrop-filter:${frost};border-color:${solid?'transparent':'var(--line)'}">
+      <div class="head" data-expand="${m.id}">
+        <div class="chips"><span class="typechip" style="background:${chipBg};color:${AC(k)}"><span class="dd" style="background:${AC(k)}"></span>${meta.label}</span>
+          ${(x.tags||[]).map(t=>`<button class="minitag" data-tag="${esc(t)}">//${esc(t)}</button>`).join('')}
+          <span style="flex:1"></span>
+          ${x.pinned?'<span style="color:var(--accent)">⚲</span>':''}
+          <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(${exp?180:0}deg)"><path d="M6 9l6 6 6-6"/></svg></div>
+        <div class="hrow">
+          ${k==='todo'?`<button class="checkbx ${done?'done':''}" data-done="${m.id}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="opacity:${done?1:0}"><path d="M5 13l4 4L19 7"/></svg></button>`:''}
+          <div class="headline ${done?'done':''}">${esc(headline)}</div>${metaChip}</div>
+      </div>${body}</div></div>`;
 }
-let vObs=null;
-function wireFeed(){
-  vObs?.disconnect();
-  vObs=new IntersectionObserver(es=>es.forEach(e=>{if(e.target.classList.contains('blur'))return e.target.pause();e.isIntersecting?e.target.play().catch(()=>{}):e.target.pause();}),{threshold:.5});
-  $$('#feed .dvid').forEach(v=>vObs.observe(v));
-  $$('#feed .f-media.blur').forEach(el=>el.onclick=()=>{el.classList.remove('blur');if(el.tagName==='VIDEO')el.play().catch(()=>{});});
-  $$('#feed img.f-media:not(.blur)').forEach(el=>el.onclick=()=>{$('#lb-img').src=el.dataset.url;$('#lightbox').classList.remove('hidden');});
-  $$('#feed .todo').forEach(el=>el.onclick=()=>toggleTodo(el.dataset.id,+el.dataset.i));
-  $$('#feed .sh-save').forEach(b=>b.onclick=async()=>{let p={};try{p=JSON.parse(b.dataset.json);}catch{}if(!p.app)return;await api(`/api/kv/${p.app}`,{method:'PUT',body:JSON.stringify({['inbox_'+Date.now()]:JSON.stringify(p)})});toast(`saved to ${p.app}`);});
-  $$('#feed .menu').forEach(b=>b.onclick=e=>{e.stopPropagation();cardMenu(b.closest('.fcard'),e.clientX,e.clientY);});
-  $$('#feed .fcard[data-mine="1"]').forEach(c=>{let lp;c.addEventListener('touchstart',()=>lp=setTimeout(()=>cardMenu(c,innerWidth/2-93,innerHeight/2),500),{passive:true});['touchend','touchmove'].forEach(ev=>c.addEventListener(ev,()=>clearTimeout(lp)));});
+function srcOf(m){const x=entMeta(m);const p=[m.content||''];if(x.cmd)p.push('//'+x.cmd);(x.tags||[]).forEach(t=>p.push('//'+t));(x.people||[]).forEach(u=>p.push('//@'+u));if(x.due)p.push('//due:'+x.due);return p.filter(Boolean).join(' ');}
+function wireStream(){
+  $$('[data-expand]').forEach(el=>el.onclick=e=>{if(e.target.closest('[data-done],.minitag'))return;const id=el.dataset.expand;expandedId=expandedId==id?null:id;editingId=null;renderStream();});
+  $$('[data-done]').forEach(b=>b.onclick=async e=>{e.stopPropagation();const m=FEED.find(x=>x.id==b.dataset.done);const x=entMeta(m);await api(`/api/dump/${m.id}/meta`,{method:'PUT',body:JSON.stringify({...x,done:!x.done})});refreshStream();});
+  $$('[data-pin]').forEach(b=>b.onclick=async()=>{const m=FEED.find(x=>x.id==b.dataset.pin);const x=entMeta(m);await api(`/api/dump/${m.id}/meta`,{method:'PUT',body:JSON.stringify({...x,pinned:!x.pinned})});refreshStream();});
+  $$('[data-sens]').forEach(b=>b.onclick=async()=>{const m=FEED.find(x=>x.id==b.dataset.sens);const x=entMeta(m);await api(`/api/dump/${m.id}/meta`,{method:'PUT',body:JSON.stringify({...x,sensitive:!x.sensitive})});refreshStream();});
+  $$('[data-del]').forEach(b=>b.onclick=async()=>{await api(`/api/dump/${b.dataset.del}`,{method:'DELETE'});expandedId=null;refreshStream();});
+  $$('[data-edit]').forEach(b=>b.onclick=()=>{editingId=b.dataset.edit;renderStream();const e2=$('#editbox');if(e2)e2.focus();});
+  $$('[data-canceledit]').forEach(b=>b.onclick=()=>{editingId=null;renderStream();});
+  $$('[data-saveedit]').forEach(b=>b.onclick=async()=>{const p=parseDraft($('#editbox').value);const m=FEED.find(x=>x.id==b.dataset.saveedit);const x=entMeta(m);
+    await api(`/api/dump/${m.id}/content`,{method:'PUT',body:JSON.stringify({content:p.text})});
+    await api(`/api/dump/${m.id}/meta`,{method:'PUT',body:JSON.stringify({...x,cmd:p.category||x.cmd,tags:p.tags,people:p.people,due:p.due})});
+    editingId=null;refreshStream();});
+  $$('.photogrid2 img:not(.blur)').forEach(im=>im.onclick=()=>{$('#lb-img').src=im.dataset.url;$('#lightbox').classList.remove('hidden');});
+  $$('.photogrid2 img.blur,video.blur,.thumb.blur').forEach(el=>el.onclick=e=>{e.stopPropagation();el.classList.remove('blur');});
 }
-async function toggleTodo(id,i){
-  const m=FEED.find(x=>x.id==id);if(!m)return;let td={};try{td=JSON.parse(m.content);}catch{return;}
-  td.items[i].done=!td.items[i].done;m.content=JSON.stringify(td);
-  await api(`/api/dump/${id}/content`,{method:'PUT',body:JSON.stringify({content:m.content})});renderFeed();
+function onDraftInput(){
+  const p=parseDraft($('#cmp-ta').value);
+  const chips=[];
+  if(p.category)chips.push([KMETA[p.category].label,AC(p.category),SOLID[p.category]||'var(--surface)']);
+  p.tags.forEach(t=>chips.push(['//'+t,'var(--ink-2)','var(--surface)']));
+  p.people.forEach(u=>chips.push(['@'+u,'#fff',personColor(u)]));
+  if(p.due)chips.push(['due '+p.due,AC('todo'),'var(--surface)']);
+  $('#parsechips').classList.toggle('hidden',!chips.length);
+  $('#parsechips').innerHTML=chips.map(([l,fg,bg])=>`<span class="pchip" style="color:${fg};background:${bg}">${esc(l)}</span>`).join('');
 }
-function cardMenu(card,x,y){
-  $$('.ctx').forEach(m=>m.remove());
-  const isFile=card.dataset.kind==='file',sens=card.dataset.sens==='1',named=card.dataset.name==='1';
-  const opts=[];
-  if(isFile)opts.push(['↗ open',()=>card.querySelector('[data-url],a,video')?.click?.()]);
-  if(isFile)opts.push([sens?'👁 unmark sensitive':'🙈 mark sensitive',()=>setMeta(card.dataset.id,{sensitive:!sens,showname:named})],
-    [named?'🏷 hide filename':'🏷 show filename',()=>setMeta(card.dataset.id,{sensitive:sens,showname:!named})]);
-  opts.push(['🗑 delete',async()=>{await api(`/api/dump/${card.dataset.id}`,{method:'DELETE'});renderFeed();}]);
-  const m=document.createElement('div');m.className='ctx';m.style.left=Math.min(x,innerWidth-196)+'px';m.style.top=Math.min(y,innerHeight-200)+'px';
-  m.innerHTML=opts.map(([l],i)=>`<div data-i="${i}">${l}</div>`).join('');
-  m.querySelectorAll('div').forEach(o=>o.onclick=()=>{m.remove();opts[+o.dataset.i][1]();});
-  document.body.appendChild(m);
+$('#cmp-ta').addEventListener('input',onDraftInput);
+$('#cmp-ta').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();commitDraft();}});
+$('#cmp-post').onclick=()=>commitDraft();
+['in-photo','in-video','in-audio','in-file'].forEach(id=>{const el=document.getElementById(id);el.onchange=()=>{[...el.files].forEach(f=>draftFiles.push(f));el.value='';renderDraftFiles();};});
+function renderDraftFiles(){
+  $('#draftfiles').classList.toggle('hidden',!draftFiles.length);
+  $('#draftfiles').innerHTML=draftFiles.map((f,i)=>{const img=/^image\//.test(f.type);const fk=fileKind(f.name);
+    return `<div class="dfile">${img?`<img src="${URL.createObjectURL(f)}">`:`<span class="kd" style="background:${fk.color}">${fk.kind}</span>`}<span class="nm">${esc(f.name)}</span><button data-rm="${i}">✕</button></div>`;}).join('');
+  $$('#draftfiles [data-rm]').forEach(b=>b.onclick=()=>{draftFiles.splice(+b.dataset.rm,1);renderDraftFiles();});
 }
-async function setMeta(id,meta){await api(`/api/dump/${id}/meta`,{method:'PUT',body:JSON.stringify(meta)});renderFeed();}
-document.addEventListener('click',()=>$$('.ctx').forEach(m=>m.remove()));
-
-/* compose */
-$('#cmp-open').onclick=()=>openCompose();
-$('#cmp-quick').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.value.trim()){quickPost(e.target.value.trim());e.target.value='';}});
-async function quickPost(text){await api('/api/dump',{method:'POST',body:JSON.stringify({content:text})});renderFeed();toast('added');}
-function openCompose(){
-  const c=$('#compose');c.classList.remove('hidden');
-  if(composeKind==='text')c.innerHTML=`<textarea id="c-body" placeholder="Write a note, paste anything…"></textarea>`;
-  else if(composeKind==='todo')c.innerHTML=`<div class="todoedit"><input id="c-title" placeholder="list title"><input id="c-items" placeholder="items, comma separated"></div>`;
-  else if(composeKind==='link')c.innerHTML=`<div class="linkrow"><span class="pfx">https://</span><input id="c-body" placeholder="paste a link"></div>`;
-  else c.innerHTML=`<div class="dropbox" id="c-drop"><div class="ic">&#8593;</div><div class="t">Drop a file</div><div class="s">drag &amp; drop, or tap to browse</div><input type="file" id="c-file" hidden></div>`;
-  c.innerHTML+=`<div class="cactions"><button class="cancel" id="c-cancel">Cancel</button><button class="go" id="c-go">Add to stream</button></div>`;
-  if(composeKind==='drop'||composeKind==='file'){const d=$('#c-drop'),f=$('#c-file');d.onclick=()=>f.click();
-    f.onchange=async()=>{if(f.files[0]){await dumpFile(f.files[0]);composeClose();}};
-    d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('hot');});
-    d.addEventListener('dragleave',()=>d.classList.remove('hot'));
-    d.addEventListener('drop',async e=>{e.preventDefault();d.classList.remove('hot');if(e.dataTransfer.files[0]){await dumpFile(e.dataTransfer.files[0]);composeClose();}});}
-  $('#c-cancel').onclick=composeClose;
-  $('#c-go').onclick=async()=>{
-    if(composeKind==='text'){const v=$('#c-body').value.trim();if(v)await api('/api/dump',{method:'POST',body:JSON.stringify({content:v})});}
-    else if(composeKind==='link'){const v=$('#c-body').value.trim();if(v)await api('/api/dump',{method:'POST',body:JSON.stringify({content:v.startsWith('http')?v:'https://'+v})});}
-    else if(composeKind==='todo'){const items=$('#c-items').value.split(',').map(x=>x.trim()).filter(Boolean).map(l=>({label:l,done:false}));if(items.length)await api('/api/dump',{method:'POST',body:JSON.stringify({kind:'todo',title:$('#c-title').value||'Todo',items})});}
-    composeClose();renderFeed();toast('added');};
+async function commitDraft(){
+  const p=parseDraft($('#cmp-ta').value);
+  if(!p.text&&!draftFiles.length)return;
+  const meta={};if(p.category)meta.cmd=p.category;if(p.tags.length)meta.tags=p.tags;if(p.people.length)meta.people=p.people;if(p.due)meta.due=p.due;
+  let cap=p.text;const take=()=>{const c=cap;cap='';return c;};
+  for(const f of draftFiles){
+    const fn=`dump-${Date.now().toString(36)}-${f.name}`;
+    toast(`uploading ${f.name}…`);
+    const r=await fetch(`${CP}/up/vault/${ME.username}/${encodeURIComponent(fn)}`,{method:'PUT',headers:{PW:ME.file_token},body:f});
+    if(!r.ok){toast(`upload failed (${r.status}) — see Review/scanner`);continue;}
+    await api('/api/dump',{method:'POST',body:JSON.stringify({content:take()||f.name,file_path:`/vault/${ME.username}/${fn}`,meta})});
+  }
+  if(!draftFiles.length)await api('/api/dump',{method:'POST',body:JSON.stringify({content:p.text,meta})});
+  else if(cap)await api('/api/dump',{method:'POST',body:JSON.stringify({content:cap,meta})});
+  $('#cmp-ta').value='';draftFiles=[];renderDraftFiles();onDraftInput();
+  toast('added to stream');refreshStream();
 }
-function composeClose(){$('#compose').classList.add('hidden');$('#compose').innerHTML='';}
-async function dumpFile(f){
-  const fn=`dump-${Date.now().toString(36)}-${f.name}`;
-  toast(`uploading ${f.name}…`);
-  const r=await fetch(`${CP}/up/vault/${ME.username}/${encodeURIComponent(fn)}`,{method:'PUT',headers:{PW:ME.file_token},body:f});
-  if(!r.ok){toast(`upload failed (${r.status})`);return;}
-  await api('/api/dump',{method:'POST',body:JSON.stringify({content:f.name,file_path:`/vault/${ME.username}/${fn}`})});
-  renderFeed();badge();
+$('#hq').addEventListener('input',e=>{SF.query=e.target.value;renderStream();});
+$('#cal-btn').onclick=e=>{e.stopPropagation();calOpen=!calOpen;renderCal();};
+document.addEventListener('click',e=>{if(calOpen&&!e.target.closest('#cal-pop,#cal-btn')){calOpen=false;$('#cal-pop').classList.add('hidden');}});
+function renderCal(){
+  const pop=$('#cal-pop');pop.classList.toggle('hidden',!calOpen);if(!calOpen)return;
+  const cur=new Date(calMonth);const y=cur.getFullYear(),mo=cur.getMonth();
+  const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate();
+  const dotDays=new Set(FEED.map(m=>dayKey(m.created_at)));
+  pop.className='calpop';
+  pop.innerHTML=`<div class="chead"><button class="cnav" data-nav="-1">‹</button><span>${cur.toLocaleDateString(undefined,{month:'long',year:'numeric'})}</span><button class="cnav" data-nav="1">›</button></div>
+    <div class="calgrid" style="margin-bottom:4px">${['S','M','T','W','T','F','S'].map(d=>`<span class="dw">${d}</span>`).join('')}</div>
+    <div class="calgrid">${'<span></span>'.repeat(first)}${Array.from({length:days},(_,i)=>{const key=`${y}-${String(mo+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`;const has=dotDays.has(key);
+      return `<button class="cday ${SF.date===key?'sel':''} ${has?'':'off'}" data-day="${key}">${i+1}${has?'<span class="d"></span>':''}</button>`;}).join('')}</div>
+    <button class="callall" data-clear="1">All dates</button>`;
+  pop.querySelectorAll('[data-nav]').forEach(b=>b.onclick=e=>{e.stopPropagation();const d=new Date(calMonth);d.setMonth(d.getMonth()+ +b.dataset.nav);calMonth=d.getTime();renderCal();});
+  pop.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{SF.date=SF.date===b.dataset.day?null:b.dataset.day;$('#cal-label').textContent=SF.date||'All dates';calOpen=false;pop.classList.add('hidden');renderStream();});
+  pop.querySelector('[data-clear]').onclick=()=>{SF.date=null;$('#cal-label').textContent='All dates';calOpen=false;pop.classList.add('hidden');renderStream();};
 }
-/* global drag onto home */
-let dragN=0;
-addEventListener('dragenter',e=>{if(curView!=='home'||!e.dataTransfer?.types.includes('Files'))return;dragN++;});
-addEventListener('dragover',e=>{if(curView==='home')e.preventDefault();});
-addEventListener('drop',async e=>{if(curView!=='home')return;e.preventDefault();dragN=0;for(const f of e.dataTransfer.files)await dumpFile(f);});
+addEventListener('dragover',e=>{if(curView!=='home'||![...(e.dataTransfer&&e.dataTransfer.types||[])].includes('Files'))return;e.preventDefault();$('#dragveil').classList.remove('hidden');});
+addEventListener('dragleave',e=>{if(!e.relatedTarget)$('#dragveil').classList.add('hidden');});
+addEventListener('drop',e=>{if(curView!=='home')return;e.preventDefault();$('#dragveil').classList.add('hidden');if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length){[...e.dataTransfer.files].forEach(f=>draftFiles.push(f));renderDraftFiles();toast('attached — hit Post');}});
 
 function badge(){api(`/api/pending${ME?.is_admin?'?all=1':''}`).then(rows=>{const n=rows.filter(r=>r.status==='flagged').length;const b=$('#pbadge');if(b){b.textContent=n;b.classList.toggle('hidden',n===0);}}).catch(()=>{});}
 
-/* ══ HOURS — ring, day strip w/ dots, sessions, income ══ */
-function workSettings(){return SVC.find(x=>x.service==='work')?.settings||{};}
-async function saveWorkSettings(patch){const st={...workSettings(),...patch};await api('/api/services/work',{method:'PUT',body:JSON.stringify({enabled:true,settings:st})});SVC=await api('/api/services');}
-const WTYPES=['desk','standing','driving','manual','construction'];
+/* ══ HOURS (rework) ══ */
+function workSettings(){const x=SVC.find(v=>v.service==='work');return (x&&x.settings)||{};}
+let selOrg=null,STATUS=null;
 async function loadHours(){
   const st=workSettings();
-  $('#wtypes').innerHTML=WTYPES.map(w=>`<button class="chip" data-w="${w}">${w}</button>`).join('');
-  let selType=WTYPES[0];
-  $$('#wtypes .chip').forEach((b,i)=>{if(i===0)b.classList.add('on');b.onclick=()=>{$$('#wtypes .chip').forEach(x=>x.classList.remove('on'));b.classList.add('on');selType=b.dataset.w;};});
-  const status=await api('/api/work/status').catch(()=>({}));
-  const btn=$('#timer-btn');
-  if(status.id){btn.textContent='Stop';btn.classList.add('running');startTick(status.started_at);}
-  else{btn.textContent='Start';btn.classList.remove('running');stopTick();}
-  btn.onclick=async()=>{const s=await api('/api/work/status');if(s.id){await api('/api/work/clockout',{method:'POST'});toast('clocked out');}
-    else{const body={activity:selType,note:$('#w-note').value||null};await api('/api/work/clockin',{method:'POST',body:JSON.stringify(body)});toast('clocked in');}loadHours();};
-  // day strip w/ dots (last 7 days)
-  const now=new Date();const days=[];for(let i=6;i>=0;i--){const d=new Date(now);d.setDate(now.getDate()-i);days.push(d);}
-  const y=now.getFullYear(),mo=now.getMonth()+1;
-  const dots=await api(`/api/work/days?year=${y}&month=${mo}`).catch(()=>[]);
-  $('#daystrip').innerHTML=days.map((d,i)=>{const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    return `<button class="dcell${i===6?' on':''}"><span class="dow">${['SU','MO','TU','WE','TH','FR','SA'][d.getDay()]}</span><span class="num">${d.getDate()}</span>${dots.includes(iso)?'<span class="dot"></span>':''}</button>`;}).join('');
+  $('#hh-day').textContent=new Date().toLocaleDateString(undefined,{weekday:'long'});
+  $('#hh-emp').textContent=(st.hourly_rate?`$${st.hourly_rate}/hr`:'set your rate in Settings')+' · single-page tracker';
+  STATUS=await api('/api/work/status').catch(()=>({}));
+  // org chips
+  if(selOrg===null)selOrg=st.default_group||0;
+  const orgs=[{id:0,name:'Personal',color:'var(--ink-3)'},...MYGROUPS.map((g,i)=>({id:g.id,name:g.name,color:['#CE5B3C','#6E7360','#8974cf','#3fa091'][i%4]}))];
+  $('#orgchips').innerHTML=orgs.map(o=>`<button class="projchip ${selOrg==o.id?'on':''}" data-org="${o.id}"><span class="pc" style="background:${o.color}"></span>${esc(o.name)}</button>`).join('');
+  $$('#orgchips .projchip').forEach(b=>b.onclick=()=>{selOrg=+b.dataset.org;loadHours();});
+  const btn=$('#hstart');
+  if(STATUS.id){btn.textContent='Clock out';btn.classList.add('running');$('#hnote-add').classList.remove('hidden');startTick(STATUS.started_at);
+    $('#clk-sub').textContent=`on the clock · ${esc(STATUS.activity||'work')}${STATUS.group_id?' · org':''}`;}
+  else{btn.textContent='Clock in';btn.classList.remove('running');$('#hnote-add').classList.add('hidden');stopTick();$('#clk-sub').textContent='not on the clock';}
+  btn.onclick=async()=>{
+    if(STATUS.id){await api('/api/work/clockout',{method:'POST'});toast('clocked out');}
+    else{const body={activity:'work',note:$('#hnote').value||null};if(selOrg)body.group_id=selOrg;
+      await api('/api/work/clockin',{method:'POST',body:JSON.stringify(body)});toast('clocked in');$('#hnote').value='';}
+    loadHours();};
+  $('#hnote-add').onclick=async()=>{
+    const t=$('#hnote').value.trim();if(!t)return;
+    await api(`/api/work/${STATUS.id}`,{method:'PUT',body:JSON.stringify({note:((STATUS.note||'')+(STATUS.note?' · ':'')+t).slice(0,500)})});
+    await api('/api/dump',{method:'POST',body:JSON.stringify({content:t,meta:{cmd:'work'}})});
+    $('#hnote').value='';toast('noted');loadHours();};
   WSESS=await api('/api/work/sessions?days=120').catch(()=>[]);
   const t0=Math.floor(new Date().setHours(0,0,0,0)/1000);
-  const todays=WSESS.filter(s=>s.started_at>=t0);
-  const dh=todays.reduce((a,s)=>a+hrs(s.started_at,s.ended_at),0);
-  const de=todays.reduce((a,s)=>a+(s.hourly_rate?hrs(s.started_at,s.ended_at)*s.hourly_rate:0),0);
-  $('#day-hours').textContent=dh.toFixed(1)+'h';$('#day-earned').textContent='$'+de.toFixed(0);
-  const pct=Math.min(100,dh/8*100);const circ=2*Math.PI*52;
-  $('#ring').setAttribute('stroke-dasharray',circ.toFixed(0));$('#ring').setAttribute('stroke-dashoffset',(circ*(1-pct/100)).toFixed(1));
-  $('#ring-pct').textContent=Math.round(pct)+'% of 8h';
-  if(!status.id)$('#ring-time').textContent=dh?`${Math.floor(dh)}:${String(Math.round(dh%1*60)).padStart(2,'0')}:00`:'0:00:00';
-  renderIncome();
-  $('#worklist').innerHTML=WSESS.slice(0,20).map(s=>{const h=hrs(s.started_at,s.ended_at);const pay=s.hourly_rate?` · $${(h*s.hourly_rate).toFixed(2)}`:'';
-    return `<div class="sess" data-sid="${s.id}"><div class="g"><div class="t">${esc(s.activity||'work')}${s.note?' — '+esc(s.note):''}</div><div class="s">${dt(s.started_at)}${s.ended_at?'':' · ⏱ running'}</div></div><div class="amt">${s.ended_at?h.toFixed(1)+'h'+pay:''}</div></div>`;}).join('')||`<div class="empty">no sessions</div>`;
-  $$('#worklist .sess').forEach(el=>el.onclick=()=>editSession(el,WSESS.find(x=>x.id==el.dataset.sid)));
-  // income seg
-  $('#inc-seg').innerHTML=[['w','Weekly'],['2w','Biweekly'],['m','Monthly']].map(([k,l])=>`<button class="chip${incMode===k?' on':''}" data-g="${k}">${l}</button>`).join('');
-  $$('#inc-seg .chip').forEach(b=>b.onclick=()=>{incMode=b.dataset.g;$$('#inc-seg .chip').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderIncome();});
+  const todays=WSESS.filter(x=>x.started_at>=t0);
+  const dh=todays.reduce((a,x)=>a+hrs(x.started_at,x.ended_at),0);
+  const de=todays.reduce((a,x)=>a+(x.hourly_rate?hrs(x.started_at,x.ended_at)*x.hourly_rate:0),0);
+  $('#st-today').textContent=dh.toFixed(1)+'h';$('#st-earn').textContent='$'+de.toFixed(0);
+  if(!STATUS.id)$('#clk').textContent=fmtHMS(dh*3600);
+  // week bars (Mon..Sun of current week)
+  const now=new Date();const mon=new Date(now);mon.setDate(now.getDate()-((now.getDay()+6)%7));mon.setHours(0,0,0,0);
+  let weekTot=0;const bars=[];
+  for(let i=0;i<7;i++){const d0=new Date(mon);d0.setDate(mon.getDate()+i);const a=d0.getTime()/1000,b=a+86400;
+    const h=WSESS.filter(x=>x.started_at>=a&&x.started_at<b).reduce((s2,x)=>s2+hrs(x.started_at,x.ended_at),0);
+    weekTot+=h;bars.push({d:d0,h});}
+  $('#st-week').textContent=weekTot.toFixed(1)+'h';
+  const mx=Math.max(1,...bars.map(b=>b.h));
+  $('#wbars').innerHTML=bars.map(b=>{const today=b.d.toDateString()===now.toDateString();
+    return `<div class="wb ${today?'today':''}"><span class="wv">${b.h?b.h.toFixed(1):''}</span><div class="bar" style="height:${Math.max(3,b.h/mx*100)}%"></div><span class="wl">${['MO','TU','WE','TH','FR','SA','SU'][(b.d.getDay()+6)%7]}</span></div>`;}).join('');
+  // notes today (stream items cmd=work)
+  const notes=(FEED.length?FEED:await api('/api/dump').catch(()=>[])).filter(m=>{try{return JSON.parse(m.meta||'{}').cmd==='work'&&m.created_at>=t0;}catch{return false;}});
+  $('#hnotes').innerHTML=notes.map(n=>`<div class="noteitem"><span class="nt">${tm(n.created_at)}</span><span>${esc(n.content)}</span></div>`).join('')||`<div class="empty">no notes today — jot as you go</div>`;
+  $('#worklist').innerHTML=WSESS.slice(0,20).map(x=>{const h=hrs(x.started_at,x.ended_at);const pay=x.hourly_rate?` · $${(h*x.hourly_rate).toFixed(2)}`:'';
+    return `<div class="sessrow" data-sid="${x.id}"><div class="g"><div class="t">${esc(x.activity||'work')}${x.note?' — '+esc(x.note):''}</div><div class="s">${dt(x.started_at)}${x.ended_at?'':' · running'}</div></div><div class="amt">${x.ended_at?h.toFixed(1)+'h'+pay:'⏱'}</div></div>`;}).join('')||`<div class="empty">no sessions yet</div>`;
+  $$('#worklist .sessrow').forEach(el=>el.onclick=()=>editSession(el,WSESS.find(x=>x.id==el.dataset.sid)));
 }
-function startTick(t0){stopTick();const r=()=>{const s=Math.floor(Date.now()/1000-t0);$('#ring-time').textContent=[s/3600,s/60%60,s%60].map(n=>String(Math.floor(n)).padStart(2,'0')).join(':').replace(/^0/,'');};r();tTick=setInterval(r,1000);}
+function fmtHMS(sec){sec=Math.floor(sec);return Math.floor(sec/3600)+':'+String(Math.floor(sec/60%60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');}
+function startTick(t0){stopTick();const r=()=>{$('#clk').textContent=fmtHMS(Date.now()/1000-t0);};r();tTick=setInterval(r,1000);}
 function stopTick(){clearInterval(tTick);tTick=null;}
-function editSession(el,s){
-  if(!s||el.querySelector('.editrow'))return;
-  el.innerHTML=`<div class="editrow"><input class="e-act" value="${esc(s.activity||'')}" placeholder="activity"><input class="e-note" value="${esc(s.note||'')}" placeholder="note"><div class="row"><input class="e-rate" type="number" step="0.5" value="${s.hourly_rate??''}" placeholder="$/hr"><button class="sbtn e-save">Save</button><button class="sbtn warn e-del">Delete</button></div></div>`;
+function editSession(el,x){
+  if(!x||el.querySelector('.editrow'))return;
+  el.innerHTML=`<div class="editrow" style="display:flex;flex-direction:column;gap:8px;width:100%">
+    <input class="fld e-act" value="${esc(x.activity||'')}" placeholder="activity">
+    <input class="fld e-note" value="${esc(x.note||'')}" placeholder="note">
+    <div class="row"><input class="fld e-rate" type="number" step="0.5" value="${x.hourly_rate==null?'':x.hourly_rate}" placeholder="$/hr" style="max-width:110px">
+    <button class="sbtn e-save">Save</button><button class="sbtn warn e-del">Delete</button></div></div>`;
   el.onclick=null;
-  el.querySelector('.e-save').onclick=async()=>{await api(`/api/work/${s.id}`,{method:'PUT',body:JSON.stringify({activity:el.querySelector('.e-act').value||null,note:el.querySelector('.e-note').value||null,hourly_rate:+el.querySelector('.e-rate').value||null})});toast('saved');loadHours();};
-  el.querySelector('.e-del').onclick=async()=>{await api(`/api/work/${s.id}`,{method:'DELETE'});toast('deleted');loadHours();};
+  el.querySelector('.e-save').onclick=async()=>{await api(`/api/work/${x.id}`,{method:'PUT',body:JSON.stringify({activity:el.querySelector('.e-act').value||null,note:el.querySelector('.e-note').value||null,hourly_rate:+el.querySelector('.e-rate').value||null})});toast('saved');loadHours();};
+  el.querySelector('.e-del').onclick=async()=>{await api(`/api/work/${x.id}`,{method:'DELETE'});toast('deleted');loadHours();};
 }
-function renderIncome(){
-  const span=incMode==='w'?7:incMode==='2w'?14:30;const buckets={};
-  WSESS.forEach(s=>{if(!s.ended_at)return;const b=Math.floor(s.started_at/(span*86400));const h=(s.ended_at-s.started_at)/3600;const o=buckets[b]??={h:0,pay:0,from:b*span*86400};o.h+=h;if(s.hourly_rate)o.pay+=h*s.hourly_rate;});
-  $('#inclist').innerHTML=Object.values(buckets).sort((a,b)=>b.from-a.from).slice(0,6).map(b=>`<div class="sess"><div class="g"><div class="t">${day(b.from)} – ${day(b.from+span*86400-1)}</div></div><div class="amt">${b.h.toFixed(1)}h · $${b.pay.toFixed(2)}</div></div>`).join('')||`<div class="empty">no completed sessions</div>`;
-}
-$('#mw-save').onclick=async()=>{
-  const d=DTP['mw-date'],s1=DTP['mw-start'],s2=DTP['mw-end'];
-  if(!d||!s1||!s2){toast('date + start + end required');return;}
-  const ts=t=>Math.floor(new Date(`${d}T${t}`).getTime()/1000);
-  try{await api('/api/work/manual',{method:'POST',body:JSON.stringify({started_at:ts(s1),ended_at:ts(s2),break_min:+$('#mw-break').value||0,note:$('#mw-note2').value||null})});toast('entry added');DTP={};$('#mw-date').textContent='pick date';$('#mw-start').textContent='start';$('#mw-end').textContent='end';loadHours();}catch(e){toast(e.message);}
-};
-
 /* ══ ARCHIVE — posters from movies/tv pool ══ */
 let ARCH=[];
 async function loadArchive(){
@@ -302,7 +392,14 @@ async function loadPhotos(){
   $('#photo-groups').innerHTML=`<div class="pgroup"><div class="pglabel">${medMode==='mine'?'My photos':'Family'} <span class="c">· ${imgs.length}</span></div><div class="tiles">${imgs.slice(0,300).map(u=>`<img loading="lazy" src="${u}" data-u="${u}">`).join('')}</div></div>`;
   $$('#photo-groups img').forEach(im=>im.onclick=()=>{$('#lb-img').src=im.dataset.u;$('#lightbox').classList.remove('hidden');});
 }
-$('#photo-add').onchange=async e=>{for(const f of e.target.files)await dumpFile(f);e.target.value='';toast('uploaded — scanning');};
+$('#photo-add').onchange=async e=>{
+  for(const f of e.target.files){
+    const fn=`dump-${Date.now().toString(36)}-${f.name}`;
+    const r=await fetch(`${CP}/up/vault/${ME.username}/${encodeURIComponent(fn)}`,{method:'PUT',headers:{PW:ME.file_token},body:f});
+    if(!r.ok){toast(`upload failed (${r.status})`);continue;}
+    await api('/api/dump',{method:'POST',body:JSON.stringify({content:f.name,file_path:`/vault/${ME.username}/${fn}`,meta:{cmd:'photo'}})});
+  }
+  e.target.value='';toast('uploaded — scanning');loadPhotos();};
 async function walkImages(vp,depth){
   const r=await fetch(`${CP}${encodeURI(vp)}/?ls`,{headers:{PW:ME.file_token}}).catch(()=>null);if(!r||!r.ok)return[];
   const j=await r.json();let out=(j.files||[]).filter(f=>/\.(jpe?g|png|gif|webp)$/i.test(f.href)).map(f=>`${CP}${encodeURI(vp)}/${f.href}?pw=${ME.file_token}`);

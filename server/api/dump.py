@@ -56,9 +56,11 @@ def post_item():
         if not content:
             conn.close(); return jsonify({"error": "empty"}), 400
         kind = "link" if URL_RE.match(content) else "text"
-    conn.execute("INSERT INTO dump_items (user_id, group_id, to_user_id, created_at, kind, content, file_path) "
-                 "VALUES (?,?,?,?,?,?,?)",
-                 (g.user["id"], gid, to_id, int(time.time()), kind, content, d.get("file_path")))
+    meta = d.get("meta") or {}
+    conn.execute("INSERT INTO dump_items (user_id, group_id, to_user_id, created_at, kind, content, file_path, meta) "
+                 "VALUES (?,?,?,?,?,?,?,?)",
+                 (g.user["id"], gid, to_id, int(time.time()), kind, content, d.get("file_path"),
+                  json.dumps(meta) if meta else "{}"))
     conn.commit(); conn.close()
     return jsonify({"ok": True, "kind": kind})
 
@@ -116,9 +118,12 @@ def set_meta(iid):
     """Owner-editable presentation meta: {"sensitive":bool,"showname":bool}"""
     m = request.get_json(silent=True) or {}
     conn = db.connect()
+    BOOLS = ("sensitive", "showname", "pinned", "done")
+    FREE = ("cmd", "tags", "people", "due")
+    clean = {k: bool(m[k]) for k in BOOLS if k in m}
+    clean.update({k: m[k] for k in FREE if k in m})
     cur = conn.execute("UPDATE dump_items SET meta=? WHERE id=? AND user_id=?",
-                       (json.dumps({k: bool(m[k]) for k in ("sensitive", "showname") if k in m}),
-                        iid, g.user["id"]))
+                       (json.dumps(clean), iid, g.user["id"]))
     conn.commit(); ok = cur.rowcount; conn.close()
     return (jsonify({"ok": True}) if ok else (jsonify({"error": "not yours"}), 404))
 
