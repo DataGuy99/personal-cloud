@@ -17,6 +17,7 @@ K_ANCHORS = "wg2-anchors"
 K_ANCHOR_LOG = "wg2-anchor-log"
 K_ACC_PROG = "wg2-acc-log_prog"
 K_BODY = "wg2-body"
+K_IMPL = "wg2-impl"
 OVERRIDE_APP = "strength"
 OVERRIDE_KEY = "coefficients"
 
@@ -51,6 +52,7 @@ def _load_all():
     except Exception:
         pass
     return {
+        "impl_ov": _j(kv, K_IMPL, {}),
         "anchors": _j(kv, K_ANCHORS, {}),
         "anchor_log": _j(kv, K_ANCHOR_LOG, {}),
         "acc_log": _j(kv, K_ACC_PROG, {}),
@@ -73,7 +75,7 @@ def patterns():
         "bodyweight": d["bodyweight"],
         "unit": "lb",
         "patterns": ST.progression(d["anchor_log"], d["acc_log"], d["anchors"],
-                                   d["bodyweight"], d["overrides"], days),
+                                   d["bodyweight"], d["overrides"], days, d["impl_ov"]),
     })
 
 
@@ -85,7 +87,8 @@ def muscles():
     d = _load_all()
     if not d["has_data"]:
         return jsonify({"error": "no workout-gen data on the server yet", "muscles": []}), 200
-    return jsonify(ST.muscle_load(d["anchor_log"], d["acc_log"], d["bodyweight"], days))
+    return jsonify(ST.muscle_load(d["anchor_log"], d["acc_log"], d["bodyweight"], days,
+                                  d["impl_ov"]))
 
 
 @bp.get("/coefficients")
@@ -93,7 +96,7 @@ def muscles():
 def coefficients():
     """Every conversion factor in play, and where each one came from."""
     d = _load_all()
-    obs = ST.observations(d["anchor_log"], d["acc_log"], d["bodyweight"])
+    obs = ST.observations(d["anchor_log"], d["acc_log"], d["bodyweight"], d["impl_ov"])
     out = {}
     for p in ST.PATTERNS:
         _, coef, _ = ST.pattern_series(obs, p["id"], d["overrides"])

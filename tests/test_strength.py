@@ -51,6 +51,21 @@ p3 = [x for x in ST.progression(anchor, acc, {"hpress": "Incline Dumbbell Press"
                                 {"Incline Dumbbell Press": 0.5}) if x["id"] == "hpress"][0]
 fails.append(not ok(p3["prescription"]["k_source"] == "manual", "manual override wins"))
 
+# implements: the logged number is per hand
+fails.append(not ok(ST.impl_of("Dumbbell Romanian Deadlifts") == 2, "DB RDL = a pair"))
+fails.append(not ok(ST.impl_of("Dumbbell Goblet Squat") == 1, "goblet = one dumbbell"))
+fails.append(not ok(ST.impl_of("Barbell Bench Press") == 1, "barbell = one implement"))
+v, _ = ST.e1rm([{"reps": 6, "weight": 90, "rir": 2}], name="Dumbbell Romanian Deadlifts")
+v1, _ = ST.e1rm([{"reps": 6, "weight": 90, "rir": 2}], name="Dumbbell Romanian Deadlifts",
+                impl_ov={"Dumbbell Romanian Deadlifts": 1})
+fails.append(not ok(abs(v - 2 * v1) < 0.01, f"90/hand reads double a single 90 ({v:.0f} vs {v1:.0f})"))
+fails.append(not ok(ST.impl_of("Dumbbell Romanian Deadlifts", {"Dumbbell Romanian Deadlifts": 1}) == 1,
+                    "impl is overridable"))
+# prescription comes back in per-hand units
+per = ST._load_for(200, reps=6, rir=2, impl=2)
+one = ST._load_for(200, reps=6, rir=2, impl=1)
+fails.append(not ok(abs(per * 2 - one) <= 5, f"prescription is per hand ({per} x2 vs {one})"))
+
 # muscle load: primary 1.0 / secondary 0.5, landmarks applied
 m = ST.muscle_load({"Barbell Bench Press": [S(D(3), 180, 8, 2)]}, {}, 184.0, 28)
 chest = [x for x in m["muscles"] if x["muscle"] == "chest"][0]

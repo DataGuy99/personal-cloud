@@ -75,26 +75,26 @@ VOL_LANDMARKS = {
     "traps": {"mev": 4, "mav": 10, "mrv": 16}, "forearms": {"mev": 2, "mav": 8, "mrv": 14},
 }
 
-# Seeds only. Ratio of this lift's e1RM to its pattern's reference lift. Dumbbell
-# entries assume the weight logged is PER DUMBBELL (the usual convention); if you
-# log the pair total these will read low -- which personal/bridged calibration
-# corrects on its own, and you can always override by hand.
+# Seeds only. Ratio of this lift's e1RM to its pattern's reference lift, in TOTAL
+# load -- a pair of dumbbells counts both, matching the app's impl model. Used only
+# when a lift has never overlapped the reference and there's no level to bridge
+# from; measurement replaces it the moment there is any.
 DEFAULT_K = {
     "Barbell Bench Press": 1.00, "Incline Barbell Bench Press": 0.85,
     "Close-grip Barbell Bench": 0.90, "Dumbbell Bench Press": 0.45,
     "Incline Dumbbell Press": 0.38, "Decline Dumbbell Press": 0.47,
     "Dumbbell Floor Press": 0.42, "Dips": 1.05, "Push-ups": 0.62, "Diamond Push-ups": 0.55,
-    "Barbell Overhead Press": 1.00, "Barbell Push Press": 1.20, "Dumbbell Arnold Press": 0.42,
+    "Barbell Overhead Press": 1.00, "Barbell Push Press": 1.20, "Dumbbell Arnold Press": 0.84,
     "Landmine Press": 0.55, "Single-arm Landmine Press": 0.35, "Pike Push-ups": 0.70,
     "Barbell Rows": 1.00, "Pendlay Rows": 0.95, "Dumbbell Rows": 0.48,
-    "Chest-supported Incline DB Rows": 0.42, "Meadow Rows": 0.55, "Inverted Rows": 0.65,
+    "Chest-supported Incline DB Rows": 0.84, "Meadow Rows": 0.55, "Inverted Rows": 0.65,
     "Pull-ups": 1.00, "Chin-ups": 1.05, "Wide-grip Pull-ups": 0.95, "Commando Pull-ups": 0.92,
     "Barbell Back Squat": 1.00, "Barbell Front Squat": 0.82, "Belt Squat": 0.85,
     "Landmine Squat": 0.60, "Dumbbell Goblet Squat": 0.40,
-    "Dumbbell Bulgarian Split Squat": 0.30, "Dumbbell Lunges": 0.30,
-    "Dumbbell Step-ups": 0.30, "Pistol Squats": 0.45,
+    "Dumbbell Bulgarian Split Squat": 0.60, "Dumbbell Lunges": 0.60,
+    "Dumbbell Step-ups": 0.60, "Pistol Squats": 0.45,
     "Conventional Deadlift": 1.00, "Sumo Deadlift": 1.00, "Barbell Romanian Deadlifts": 0.75,
-    "Landmine Romanian Deadlift": 0.45, "Dumbbell Romanian Deadlifts": 0.40,
+    "Landmine Romanian Deadlift": 0.45, "Dumbbell Romanian Deadlifts": 0.80,
     "Single-leg DB Romanian Deadlift": 0.25, "Barbell Hip Thrusts": 0.90,
     "B-stance Hip Thrust": 0.60, "Barbell Good Mornings": 0.55, "Nordic Curls": 0.50,
 }
@@ -107,18 +107,30 @@ def _day(iso):
     return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).date()
 
 
-def _load(s, bw, is_bw):
-    w = float(s.get("weight") or 0)
+def impl_of(name, overrides=None):
+    """Implements moved at once. 2 = a pair of dumbbells, one per hand."""
+    if overrides and overrides.get(name) is not None:
+        try:
+            return int(overrides[name]) or 1
+        except Exception:
+            return 1
+    return int((EXERCISES.get(name) or {}).get("impl") or 1)
+
+
+def _load(s, bw, is_bw, name=None, impl_ov=None):
+    """Total lb a set moved. The logged weight is what's on ONE implement, so a
+    pair of 40s is 80 lb -- the same convention the app uses."""
+    w = float(s.get("weight") or 0) * (impl_of(name, impl_ov) if name else 1)
     return (bw + w) if is_bw else w
 
 
-def e1rm(sets, bodyweight=0.0, is_bw=False):
+def e1rm(sets, bodyweight=0.0, is_bw=False, name=None, impl_ov=None):
     """Epley w/ RIR, blended across sets, weighted toward near-failure.
     Exactly workout-gen's model: e = w*(1+(reps+rir)/30), weight = 1/(1+rir).
     Returns (e1rm, assumed_failure) -- the flag is set when no set carried an RIR
     and we had to treat the top set as taken to failure."""
     usable = [s for s in sets
-              if (s.get("reps") or 0) > 0 and _load(s, bodyweight, is_bw) > 0]
+              if (s.get("reps") or 0) > 0 and _load(s, bodyweight, is_bw, name, impl_ov) > 0]
     if not usable:
         return None, False
     with_rir = [s for s in usable if s.get("rir") is not None]
@@ -126,17 +138,17 @@ def e1rm(sets, bodyweight=0.0, is_bw=False):
         num = den = 0.0
         for s in with_rir:
             rir = float(s["rir"])
-            load = _load(s, bodyweight, is_bw)
+            load = _load(s, bodyweight, is_bw, name, impl_ov)
             rtf = float(s["reps"]) + rir
             num += load * (1 + rtf / 30) * (1 / (1 + rir))
             den += 1 / (1 + rir)
         return num / den, False
-    top = max(usable, key=lambda s: _load(s, bodyweight, is_bw))
-    load = _load(top, bodyweight, is_bw)
+    top = max(usable, key=lambda s: _load(s, bodyweight, is_bw, name, impl_ov))
+    load = _load(top, bodyweight, is_bw, name, impl_ov)
     return load * (1 + float(top["reps"]) / 30), True
 
 
-def observations(anchor_log, acc_log, bodyweight):
+def observations(anchor_log, acc_log, bodyweight, impl_ov=None):
     """Every e1RM datapoint we have, from anchors AND accessories.
     Accessories matter: they're what let us MEASURE a coefficient instead of
     guessing one."""
@@ -148,7 +160,7 @@ def observations(anchor_log, acc_log, bodyweight):
                 continue
             is_bw = bool(ex.get("bw"))
             for sess in sessions or []:
-                val, assumed = e1rm(sess.get("sets") or [], bodyweight, is_bw)
+                val, assumed = e1rm(sess.get("sets") or [], bodyweight, is_bw, name, impl_ov)
                 if not val:
                     continue
                 try:
@@ -266,15 +278,16 @@ def pattern_series(obs, pattern, overrides=None):
     return series, coef, swaps
 
 
-def _load_for(target_e1rm, reps, rir, is_bw=False, bodyweight=0.0):
+def _load_for(target_e1rm, reps, rir, is_bw=False, bodyweight=0.0, impl=1):
     """Invert Epley: the load that puts `reps` at `rir` for a given e1RM.
-    Rounded to 5lb, matching the app. Bodyweight lifts return ADDED weight."""
+    Returns what you'd put on ONE implement (per hand), rounded to 5lb -- the same
+    units you type into the app. Bodyweight lifts return ADDED weight."""
     raw = target_e1rm / (1 + (reps + rir) / 30)
     if is_bw:
         raw -= bodyweight
         if raw <= 0:
             return 0
-    return int(round(raw / 5) * 5)
+    return int(round((raw / max(impl, 1)) / 5) * 5)
 
 
 def _slope_per_week(series):
@@ -292,8 +305,9 @@ def _slope_per_week(series):
     return round(sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den, 2)
 
 
-def progression(anchor_log, acc_log, anchors, bodyweight, overrides=None, days=365):
-    obs = observations(anchor_log, acc_log, bodyweight)
+def progression(anchor_log, acc_log, anchors, bodyweight, overrides=None, days=365,
+                impl_ov=None):
+    obs = observations(anchor_log, acc_log, bodyweight, impl_ov)
     if days:
         from datetime import date, timedelta
         cutoff = date.today() - timedelta(days=days)
@@ -335,7 +349,9 @@ def progression(anchor_log, acc_log, anchors, bodyweight, overrides=None, days=3
                 # double-progression bottom of range at RIR 2, rounded to 5lb like the app
                 "suggested_top_set": _load_for(expected, reps=6, rir=2,
                                                is_bw=bool(ex_def.get("bw")),
-                                               bodyweight=bodyweight),
+                                               bodyweight=bodyweight,
+                                               impl=impl_of(anchor_name, impl_ov)),
+                "implements": impl_of(anchor_name, impl_ov),
                 "for": "6 reps @ RIR 2",
                 "caveat": (None if ak["source"] in ("reference", "personal", "manual")
                            else "conversion is estimated -- treat the first session as a "
@@ -365,7 +381,7 @@ def progression(anchor_log, acc_log, anchors, bodyweight, overrides=None, days=3
     return out
 
 
-def muscle_load(anchor_log, acc_log, bodyweight, days=28):
+def muscle_load(anchor_log, acc_log, bodyweight, days=28, impl_ov=None):
     """Two currencies, because they answer different questions:
 
       hard_sets   -- primary 1.0, secondary 0.5. This is what MEV/MAV/MRV are
@@ -401,7 +417,7 @@ def muscle_load(anchor_log, acc_log, bodyweight, days=28):
                     reps = s.get("reps") or 0
                     if not reps:
                         continue
-                    load = _load(s, bodyweight, is_bw)
+                    load = _load(s, bodyweight, is_bw, name, impl_ov)
                     rir = s.get("rir")
                     # workout-gen's definition of a hard set
                     if rir is None or float(rir) <= 4:
