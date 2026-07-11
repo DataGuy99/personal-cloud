@@ -32,6 +32,7 @@ from api import dump as api_dump
 from api import services as api_services
 from api import kv as api_kv
 from api import backup as api_backup
+from api import strength as api_strength
 
 logging.basicConfig(filename=os.environ.get("PC_LOG", "/var/log/personal-cloud-api.log"),
                     level=logging.INFO,
@@ -238,6 +239,7 @@ app.register_blueprint(api_dump.bp)
 app.register_blueprint(api_services.bp)
 app.register_blueprint(api_kv.bp)
 app.register_blueprint(api_backup.bp)
+app.register_blueprint(api_strength.bp)
 
 
 @app.get("/api/health/storage")
