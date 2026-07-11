@@ -579,6 +579,11 @@ $('#imp-file').onchange=async e=>{
     let msg=`<b>Imported:</b> ${esc(got)}`;
     if(skip)msg+=`<br>Already had: ${esc(skip)}`;
     if(r.groups_recreated?.length)msg+=`<br>Recreated org: ${esc(r.groups_recreated.join(', '))}`;
+    const kept=Object.entries(r.app_keys_kept||{});
+    if(kept.length){
+      msg+=`<br><b>Kept your version</b> of: ${kept.map(([a,ks])=>`${esc(a)} (${ks.map(esc).join(', ')})`).join('; ')}`;
+      msg+=`<br><span style="color:var(--ink-3)">${esc(r.app_conflict_note||'')}</span>`;
+    }
     if(r.note)msg+=`<br><span style="color:#c65b52">${esc(r.note)}</span>`;
     $('#imp-out').innerHTML=msg;
     toast('imported');
@@ -595,14 +600,53 @@ async function appExport(a){
 }
 async function appImport(a,file){
   const d=await readJSON(file); if(!d) return;
-  if(d.format==='nook-export/1'){ toast('that\'s a full account backup — use Import above'); return; }
+  if(d.format==='nook-export/1'){ toast("that's a full account backup — use Import above"); return; }
   const kv=Object.fromEntries(Object.entries(d).map(([k,v])=>[k,typeof v==='string'?v:JSON.stringify(v)]));
   if(!Object.keys(kv).length){ toast('that file has no keys'); return; }
-  if(!confirm(`Replace ${a}'s data with ${Object.keys(kv).length} keys from this file?\n\nThe current state is snapshotted first, so it's undoable.`))return;
-  await api(`/api/kv/${a}/snapshot`,{method:'POST'}).catch(()=>{});
-  await api(`/api/kv/${a}?replace=1`,{method:'PUT',body:JSON.stringify(kv)});
-  toast(`${a}: imported ${Object.keys(kv).length} keys — open the app to check`);
-  loadSettings();
+  // never import blind: ask the server what this would actually do
+  const p=await api(`/api/kv/${a}/preview`,{method:'POST',body:JSON.stringify(kv)});
+  clashDialog(a,kv,p);
+}
+function closeModal(){ $('#modal').classList.add('hidden'); $('#modal').innerHTML=''; }
+function clashDialog(a,kv,p){
+  const s=p.summary, hasClash=s.conflicts>0, canUnion=s.conflicts_mergeable>0;
+  const badge=(txt,col)=>`<span class="kbadge" style="background:var(--surface);color:${col}">${txt}</span>`;
+  const rows=p.keys.map(k=>{
+    if(k.status==='new')return `<div class="krow"><span class="kn">${esc(k.key)}</span><span class="kd">not on the server — will be added</span>${badge('new','var(--a-workout)')}</div>`;
+    if(k.status==='identical')return `<div class="krow"><span class="kn">${esc(k.key)}</span><span class="kd">already identical</span>${badge('same','var(--ink-3)')}</div>`;
+    if(k.status==='only_mine')return `<div class="krow"><span class="kn">${esc(k.key)}</span><span class="kd">only on the server — <b>deleted by Replace</b>, kept by everything else</span>${badge('yours','var(--a-work)')}</div>`;
+    const d=k.mergeable
+      ? `${k.strategy} · yours ${k.mine_items} + file ${k.theirs_items} → <b>${k.union_items} combined</b>${k.overlapping_items?` (${k.overlapping_items} in both — file's copy wins)`:''}`
+      : `can't be combined automatically (${esc(k.reason||'unknown shape')})`;
+    return `<div class="krow"><span class="kn">${esc(k.key)}</span><span class="kd">${d}</span>${badge(k.mergeable?'combinable':'clash',k.mergeable?'var(--a-todo)':'#c65b52')}</div>`;
+  }).join('');
+  const go=async(mode)=>{
+    closeModal();
+    await api(`/api/kv/${a}/snapshot`,{method:'POST'}).catch(()=>{});
+    const r=await api(`/api/kv/${a}?mode=${mode}`,{method:'PUT',body:JSON.stringify(kv)});
+    let msg=`${a}: ${r.n} written`;
+    if(r.unioned)msg+=`, ${r.unioned} combined`;
+    if(r.kept_yours)msg+=`, ${r.kept_yours} kept as yours`;
+    toast(msg);
+    if(r.could_not_combine?.length)
+      $('#imp-out').innerHTML=`<span style="color:#c65b52">Couldn't combine ${r.could_not_combine.map(c=>esc(c.key)).join(', ')} — your version was kept. Export both and reconcile by hand if you need the file's copy.</span>`;
+    loadSettings();
+  };
+  $('#modal').innerHTML=`<div class="modalcard">
+    <h3>Importing into ${esc(a)}</h3>
+    <div class="sub">${s.new} new · ${s.conflicts} clash${s.conflicts===1?'':'es'} · ${s.only_on_server} only on server · ${s.identical} identical</div>
+    ${hasClash?`<div class="s" style="color:var(--ink-2);margin-bottom:6px">This app already has data. Nothing is written until you choose — and your current state is snapshotted first either way.</div>`:''}
+    ${rows}
+    <div class="modalacts">
+      ${canUnion?`<button class="mbtn rec" data-m="union"><b>Combine both</b><small>Keep everything from both sides. On a genuine overlap the file's copy wins.</small></button>`:''}
+      <button class="mbtn ${canUnion?'':'rec'}" data-m="keep"><b>Keep mine</b><small>Add only what's missing. Nothing of yours is touched.</small></button>
+      <button class="mbtn" data-m="merge"><b>File wins</b><small>The file overwrites shared keys. Your other keys survive.</small></button>
+      <button class="mbtn danger" data-m="replace"><b>Replace all</b><small>The file becomes the only truth. Your other keys are deleted.</small></button>
+    </div>
+    <div class="modalacts" style="border:none;padding-top:4px;margin-top:2px"><button class="mbtn plain" data-m="">Cancel</button></div>
+  </div>`;
+  $('#modal').classList.remove('hidden');
+  $$('#modal .mbtn').forEach(b=>b.onclick=()=>{ b.dataset.m ? go(b.dataset.m) : closeModal(); });
 }
 
 /* ══ custom date/time pickers ══ */

@@ -244,25 +244,47 @@ def do_import():
             (uid, s.get("service"), 1 if s.get("enabled") else 0, json.dumps(st), now))
     report["services"] = len(data.get("services", []))
 
-    # app KV — replace wipes the app first so renamed/deleted keys don't resurrect
+    # ── app KV.
+    # MERGE means "add what's missing" -- so an app key I already have is NOT
+    # overwritten. An app's whole history lives under one fat key; clobbering it
+    # would erase everything logged since the backup was taken, which is the
+    # opposite of what a merge promises. Conflicts are kept and REPORTED, and the
+    # per-app importer in Settings offers union/replace with a preview.
+    # REPLACE means "this file is the truth" -- wipe first, so renamed or deleted
+    # keys don't resurrect.
     keyn = 0
+    conflicts = {}
     for app, kv in (data.get("apps") or {}).items():
         if mode == "replace":
             conn.execute("DELETE FROM app_kv WHERE user_id=? AND app=?", (uid, app))
+        mine = {r["key"]: r["value"] for r in conn.execute(
+            "SELECT key, value FROM app_kv WHERE user_id=? AND app=?", (uid, app)).fetchall()}
         for k, v in kv.items():
+            v = v if isinstance(v, str) else json.dumps(v)
+            if mode == "merge" and k in mine and mine[k] != v:
+                conflicts.setdefault(app, []).append(k)
+                continue
             conn.execute(
                 "INSERT INTO app_kv (user_id, app, key, value, updated_at) VALUES (?,?,?,?,?) "
                 "ON CONFLICT(user_id, app, key) DO UPDATE SET "
                 "value=excluded.value, updated_at=excluded.updated_at",
-                (uid, app, k, v if isinstance(v, str) else json.dumps(v), now))
+                (uid, app, k, v, now))
             keyn += 1
     report["app_keys"] = keyn
+    if conflicts:
+        report["_conflicts"] = conflicts
 
+    conflicts = report.pop("_conflicts", {})
     conn.commit()
     conn.close()
     return jsonify({
         "ok": True, "mode": mode, "imported": report,
         "skipped_duplicates": skipped,
+        "app_keys_kept": conflicts,
+        "app_conflict_note": (
+            "these app keys already existed and differ; your version was KEPT. "
+            "To combine them, use the per-app Import in Backups — it previews the "
+            "clash and can union both histories." if conflicts else None),
         "groups_recreated": recreated,
         "groups_unlinked": unlinked,
         "note": ("rows referencing an org you don't belong to kept their data but lost the "

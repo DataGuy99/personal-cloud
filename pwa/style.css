@@ -309,3 +309,22 @@ main{flex:1;min-width:0;height:100%;position:relative;display:flex;flex-directio
   .entry{grid-template-columns:38px 22px 1fr}
   .hstat{grid-template-columns:1fr}
 }
+
+/* ── import clash dialog ── */
+#modal{position:fixed;inset:0;z-index:97;background:rgba(20,16,10,.5);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px}
+.modalcard{width:min(620px,96vw);max-height:88vh;overflow-y:auto;background:var(--panel);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid var(--line-2);border-radius:20px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);padding:22px;animation:fadein .16s ease}
+.modalcard h3{margin:0 0 4px;font:400 24px 'Instrument Serif',serif}
+.modalcard .sub{font:500 12px 'JetBrains Mono',monospace;color:var(--ink-2);margin-bottom:16px}
+.krow{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.krow .kn{font:600 12.5px 'JetBrains Mono',monospace;flex:none;min-width:104px;overflow:hidden;text-overflow:ellipsis}
+.krow .kd{flex:1;min-width:0;font:400 12px 'Instrument Sans',sans-serif;color:var(--ink-2)}
+.kbadge{flex:none;padding:3px 9px;border-radius:999px;font:600 9.5px 'JetBrains Mono',monospace;letter-spacing:.06em;text-transform:uppercase}
+.modalacts{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.mbtn{flex:1;min-width:130px;padding:11px 14px;border-radius:12px;border:1px solid var(--line-2);background:transparent;color:var(--ink);font:600 12.5px 'Instrument Sans',sans-serif;cursor:pointer;text-align:left}
+.mbtn b{display:block;font-weight:600}
+.mbtn small{display:block;font:400 10.5px 'Instrument Sans',sans-serif;color:var(--ink-3);margin-top:3px;line-height:1.35}
+.mbtn.rec{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.mbtn.rec small{color:rgba(255,255,255,.6)}
+[data-theme="dark"] .mbtn.rec small{color:rgba(0,0,0,.5)}
+.mbtn.danger{border-color:#c65b52;color:#c65b52}
+.mbtn.plain{flex:none;min-width:0;border:none;color:var(--ink-3)}
