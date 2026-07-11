@@ -90,6 +90,30 @@ async function runSearch(){
   $$('.sres[data-vp]').forEach(el=>el.onclick=()=>window.open(`${CP}/${encodeURI(el.dataset.vp)}?pw=${ME.file_token}`,'_blank'));
 }
 
+
+/* upload → copyparty staging; scanner moves it to your vault when clean */
+async function upload(f, meta){
+  const fn=`dump-${Date.now().toString(36)}-${f.name}`;
+  toast(`uploading ${f.name}…`);
+  let r;
+  try{
+    r=await fetch(`${CP}/up/vault/${ME.username}/${encodeURIComponent(fn)}`,
+      {method:'PUT',headers:{PW:ME.file_token},body:f});
+  }catch(e){ toast(`upload failed — can't reach the file server`); return null; }
+  if(!r.ok){
+    const why = r.status===403 ? "permission denied on the server's staging folder (run sync_copyparty.py --fix-perms as root)"
+      : r.status===404 ? 'upload volume missing — re-run sync_copyparty.py'
+      : r.status===413 ? 'file too large'
+      : `HTTP ${r.status}`;
+    toast(`${f.name}: ${why}`);
+    console.error('upload failed', r.status, await r.text().catch(()=>''));
+    return null;
+  }
+  await api('/api/dump',{method:'POST',body:JSON.stringify({
+    content:f.name, file_path:`/vault/${ME.username}/${fn}`, meta:meta||{}})});
+  return fn;
+}
+
 /* ══ STREAM (Home rework) ══ */
 const RESERVED={todo:'todo',task:'todo',workout:'workout',lift:'workout',run:'workout',meal:'meal',food:'meal',work:'work',idea:'idea',note:'note',link:'link'};
 const KMETA={note:{label:'Note',icon:'M4 20h4L18 8l-4-4L4 16z'},todo:{label:'To-do',icon:'M5 13l4 4L19 7'},workout:{label:'Workout',icon:'M3 12h4l3 8 4-16 3 8h4'},meal:{label:'Meal',icon:'M4 11h16a8 8 0 01-16 0z'},work:{label:'Work',icon:'M4 8h16v11H4z M9 8V6a2 2 0 012-2h2a2 2 0 012 2v2'},idea:{label:'Idea',icon:'M9 18h6M10 21h4M12 3a6 6 0 013 11v1H9v-1a6 6 0 013-11z'},photo:{label:'Photo',icon:'M3 5h18v14H3z M3 15l5-5 4 4 3-3 5 5'},link:{label:'Link',icon:'M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1 M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1'},audio:{label:'Audio',icon:'M9 18V5l10-2v13 M9 18a3 3 0 11-6 0 3 3 0 016 0 M19 16a3 3 0 11-6 0 3 3 0 016 0'},video:{label:'Video',icon:'M8 6l10 6-10 6z'},file:{label:'File',icon:'M6 3h8l4 4v14H6z M14 3v5h5'}};
@@ -266,13 +290,12 @@ async function commitDraft(){
   if(!p.text&&!draftFiles.length)return;
   const meta={};if(p.category)meta.cmd=p.category;if(p.tags.length)meta.tags=p.tags;if(p.people.length)meta.people=p.people;if(p.due)meta.due=p.due;
   let cap=p.text;const take=()=>{const c=cap;cap='';return c;};
+  let sent=0;
   for(const f of draftFiles){
-    const fn=`dump-${Date.now().toString(36)}-${f.name}`;
-    toast(`uploading ${f.name}…`);
-    const r=await fetch(`${CP}/up/vault/${ME.username}/${encodeURIComponent(fn)}`,{method:'PUT',headers:{PW:ME.file_token},body:f});
-    if(!r.ok){toast(`upload failed (${r.status}) — see Review/scanner`);continue;}
-    await api('/api/dump',{method:'POST',body:JSON.stringify({content:take()||f.name,file_path:`/vault/${ME.username}/${fn}`,meta})});
+    const ok=await upload(f, {...meta, caption: take()||undefined});
+    if(ok) sent++;
   }
+  if(draftFiles.length && !sent){ toast('nothing uploaded — see the error above'); return; }
   if(!draftFiles.length)await api('/api/dump',{method:'POST',body:JSON.stringify({content:p.text,meta})});
   else if(cap)await api('/api/dump',{method:'POST',body:JSON.stringify({content:cap,meta})});
   $('#cmp-ta').value='';draftFiles=[];renderDraftFiles();onDraftInput();
@@ -393,13 +416,11 @@ async function loadPhotos(){
   $$('#photo-groups img').forEach(im=>im.onclick=()=>{$('#lb-img').src=im.dataset.u;$('#lightbox').classList.remove('hidden');});
 }
 $('#photo-add').onchange=async e=>{
-  for(const f of e.target.files){
-    const fn=`dump-${Date.now().toString(36)}-${f.name}`;
-    const r=await fetch(`${CP}/up/vault/${ME.username}/${encodeURIComponent(fn)}`,{method:'PUT',headers:{PW:ME.file_token},body:f});
-    if(!r.ok){toast(`upload failed (${r.status})`);continue;}
-    await api('/api/dump',{method:'POST',body:JSON.stringify({content:f.name,file_path:`/vault/${ME.username}/${fn}`,meta:{cmd:'photo'}})});
-  }
-  e.target.value='';toast('uploaded — scanning');loadPhotos();};
+  let n=0;
+  for(const f of e.target.files){ if(await upload(f,{cmd:'photo'})) n++; }
+  e.target.value='';
+  if(n) toast(`${n} uploaded — scanning, they'll appear once cleared`);
+  loadPhotos();};
 async function walkImages(vp,depth){
   const r=await fetch(`${CP}${encodeURI(vp)}/?ls`,{headers:{PW:ME.file_token}}).catch(()=>null);if(!r||!r.ok)return[];
   const j=await r.json();let out=(j.files||[]).filter(f=>/\.(jpe?g|png|gif|webp)$/i.test(f.href)).map(f=>`${CP}${encodeURI(vp)}/${f.href}?pw=${ME.file_token}`);
@@ -479,6 +500,17 @@ async function loadSettings(){
   $('#svc-list').innerHTML=SVC.map(s=>`<div class="srow" data-svc="${s.service}"><div class="g"><div class="t">${MI[s.service]} ${s.service}</div><div class="s">${DESC[s.service]}</div></div>${s.service==='work'?`<input class="rate" type="number" step="0.5" placeholder="$/hr" value="${s.settings.hourly_rate??''}">`:''}<div class="sw${s.enabled?' on':''}"></div></div>`).join('');
   $$('#svc-list .sw').forEach(sw=>sw.onclick=()=>svcToggle(sw.closest('.srow'),!sw.classList.contains('on')));
   $$('#svc-list .rate').forEach(r=>r.onchange=()=>{const row=r.closest('.srow');svcToggle(row,row.querySelector('.sw').classList.contains('on'));});
+  // storage health
+  try{
+    const hs=await api('/api/health/storage');
+    $('#healthlist').innerHTML=hs.checks.map(c=>{
+      const good=c.exists&&c.writable&&c.owner_ok;
+      const why=!c.exists?'missing':!c.owner_ok?'wrong owner':!c.writable?'not writable':'ok';
+      return `<div class="srow"><div class="g"><div class="t" style="font:500 12.5px 'JetBrains Mono',monospace">${esc(c.path)}</div>
+        <div class="s">${why}</div></div>
+        <span class="metachip" style="background:var(--surface);color:${good?'var(--a-workout)':'#c65b52'}">${good?'OK':'BROKEN'}</span></div>`;
+    }).join('')+(hs.ok?'':`<div class="s" style="color:#c65b52;margin-top:10px">Uploads will fail. Fix on the server:<br><code style="user-select:all">${esc(hs.fix)}</code></div>`);
+  }catch{ $('#healthlist').innerHTML=`<div class="s" style="color:var(--ink-3)">health check unavailable</div>`; }
   // snapshots
   const paired=SVC.filter(x=>x.enabled).map(x=>SVCAPP[x.service]).filter(Boolean);
   const apps=[...new Set(['workout-gen','meal-prep','contract-manager',...paired])];

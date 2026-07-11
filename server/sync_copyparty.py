@@ -84,25 +84,88 @@ def generate():
     return "\n".join(out)
 
 
+# copyparty runs as its own unprivileged user. Anything this script creates
+# while running as root is root-owned by default -> copyparty gets no write bit
+# and every upload into that volume 403s. Always hand ownership over.
+CP_USER = os.environ.get("PC_CP_USER", "copyparty")
+
+
+def _cp_ids():
+    try:
+        import pwd, grp
+        return pwd.getpwnam(CP_USER).pw_uid, grp.getgrnam(CP_USER).gr_gid
+    except Exception:
+        return None, None
+
+
+def _own(path):
+    """chown path to copyparty:copyparty (no-op when not root)."""
+    uid, gid = _cp_ids()
+    if uid is None or os.geteuid() != 0:
+        return
+    try:
+        os.chown(path, uid, gid)
+        os.chmod(path, 0o775)
+    except OSError:
+        pass
+
+
+def _mkdir(path):
+    os.makedirs(path, exist_ok=True)
+    _own(path)
+
+
+def fix_perms():
+    """Repair ownership of every managed tree (root only). Idempotent."""
+    uid, gid = _cp_ids()
+    if uid is None:
+        print(f"! no such user '{CP_USER}' — skipping perms repair")
+        return
+    if os.geteuid() != 0:
+        print("! not root — cannot repair ownership")
+        return
+    fixed = 0
+    for root in ("/staging", "/groups", "/users", "/storage/pool"):
+        if not os.path.isdir(root):
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            for p in [dirpath] + [os.path.join(dirpath, f) for f in filenames]:
+                try:
+                    st = os.stat(p)
+                    if st.st_uid != uid or st.st_gid != gid:
+                        os.chown(p, uid, gid)
+                        fixed += 1
+                except OSError:
+                    pass
+    print(f"perms: reassigned {fixed} paths to {CP_USER}:{CP_USER}")
+
+
 def ensure_dirs():
     conn = db.connect()
     users = conn.execute("SELECT username FROM users WHERE disabled=0").fetchall()
     grps = conn.execute("SELECT name FROM groups").fetchall()
     conn.close()
+    for base in ("/staging", "/staging/vault", "/staging/group", "/staging/public",
+                 "/groups", "/users", "/storage/pool"):
+        _mkdir(base)
     for gr in grps:
         slug = gr["name"].lower().replace(" ", "-")
-        os.makedirs(f"/groups/{slug}", exist_ok=True)
-        os.makedirs(f"/staging/group/{slug}", exist_ok=True)
+        _mkdir(f"/groups/{slug}")
+        _mkdir(f"/staging/group/{slug}")
     for u in users:
-        for p in (f"/users/{u['username']}/private", f"/staging/vault/{u['username']}"):
-            os.makedirs(p, exist_ok=True)
+        _mkdir(f"/users/{u['username']}")
+        _mkdir(f"/users/{u['username']}/private")
+        _mkdir(f"/staging/vault/{u['username']}")
     for cat in PUBLIC_CATS + ["unknown"]:
-        os.makedirs(f"/staging/public/{cat}", exist_ok=True)
+        _mkdir(f"/staging/public/{cat}")
         if cat != "unknown":
-            os.makedirs(f"/storage/pool/{cat}", exist_ok=True)
+            _mkdir(f"/storage/pool/{cat}")
 
 
 def main():
+    if "--fix-perms" in sys.argv:
+        fix_perms()
+        return
     conf = generate()
     ensure_dirs()
     with open(CONF, "w") as f:

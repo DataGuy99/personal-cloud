@@ -238,6 +238,46 @@ app.register_blueprint(api_services.bp)
 app.register_blueprint(api_kv.bp)
 
 
+@app.get("/api/health/storage")
+@require_auth
+def health_storage():
+    """Is every volume this user writes to actually writable by copyparty?
+    Answers the 'my uploads vanish' question without SSH."""
+    import pwd
+    u = g.user
+    checks = []
+    paths = [f"/staging/vault/{u['username']}", f"/users/{u['username']}/private"]
+    conn = db.connect()
+    for r in conn.execute(
+            "SELECT g.name FROM groups g JOIN group_members m ON m.group_id=g.id "
+            "WHERE m.user_id=?", (u["id"],)).fetchall():
+        slug = r["name"].lower().replace(" ", "-")
+        paths += [f"/staging/group/{slug}", f"/groups/{slug}"]
+    conn.close()
+    try:
+        cp = pwd.getpwnam(os.environ.get("PC_CP_USER", "copyparty"))
+    except KeyError:
+        cp = None
+    for p in paths:
+        item = {"path": p, "exists": os.path.isdir(p)}
+        if item["exists"]:
+            st = os.stat(p)
+            item["owner_ok"] = bool(cp and st.st_uid == cp.pw_uid)
+            item["writable"] = os.access(p, os.W_OK)
+        else:
+            item["owner_ok"] = item["writable"] = False
+        checks.append(item)
+    # owner_ok is the trustworthy signal: os.access() lies when the caller is
+    # root (root writes anything), so a root-run API would report a false pass.
+    bad = [c for c in checks if not (c["exists"] and c["writable"] and c["owner_ok"])]
+    return jsonify({
+        "ok": not bad,
+        "checks": checks,
+        "fix": None if not bad else
+               "run as root: python3 /opt/personal-cloud/server/sync_copyparty.py --fix-perms",
+    })
+
+
 # ── ported apps static serving ────────────────────────────────────
 APPS_DIR = os.environ.get("PC_APPS", os.path.join(os.path.dirname(__file__), "..", "apps"))
 
