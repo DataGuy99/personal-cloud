@@ -514,8 +514,20 @@ async function loadSettings(){
   // snapshots
   const paired=SVC.filter(x=>x.enabled).map(x=>SVCAPP[x.service]).filter(Boolean);
   const apps=[...new Set(['workout-gen','meal-prep','contract-manager',...paired])];
-  const rows=[];for(const a of apps){const sn=await api(`/api/kv/${a}/snapshots`).catch(()=>[]);rows.push(`<div class="snaprow" data-app="${a}"><div class="g"><div class="t">${a}</div><div class="s">${sn.length?sn.length+' snapshots · latest '+dt(sn[0].created_at):'no snapshots'}</div></div><button class="sbtn snap-now">Snapshot</button>${sn.length?`<button class="sbtn warn snap-restore" data-sid="${sn[0].id}">Restore</button>`:''}</div>`);}
+  const rows=[];
+  for(const a of apps){
+    const sn=await api(`/api/kv/${a}/snapshots`).catch(()=>[]);
+    rows.push(`<div class="snaprow" data-app="${a}"><div class="g"><div class="t">${a}</div>
+      <div class="s">${sn.length?sn.length+' snapshots · latest '+dt(sn[0].created_at):'no snapshots'}</div></div>
+      <button class="ebtn app-exp">Export</button>
+      <label class="ebtn" style="cursor:pointer">Import<input type="file" class="app-imp" accept="application/json,.json" hidden></label>
+      <button class="sbtn snap-now">Snapshot</button>
+      ${sn.length?`<button class="sbtn warn snap-restore" data-sid="${sn[0].id}">Restore</button>`:''}</div>`);
+  }
   $('#snaplist').innerHTML=rows.join('');
+  $$('.app-exp').forEach(b=>b.onclick=()=>appExport(b.closest('.snaprow').dataset.app));
+  $$('.app-imp').forEach(i=>i.onchange=e=>{const f=e.target.files[0];e.target.value='';
+    if(f)appImport(i.closest('.snaprow').dataset.app,f);});
   $$('.snap-now').forEach(b=>b.onclick=async()=>{const a=b.closest('.snaprow').dataset.app;const r=await api(`/api/kv/${a}/snapshot`,{method:'POST'});toast(`${a}: ${r.keys} keys`);loadSettings();});
   $$('.snap-restore').forEach(b=>b.onclick=async()=>{const a=b.closest('.snaprow').dataset.app;const r=await api(`/api/kv/${a}/restore/${b.dataset.sid}`,{method:'POST'});toast(`${a}: restored ${r.keys}`);});
   // admin
@@ -525,6 +537,73 @@ async function loadSettings(){
 async function svcToggle(row,on){const svc=row.dataset.svc;const settings={};const rate=row.querySelector('.rate');if(rate&&rate.value)settings.hourly_rate=+rate.value;await api(`/api/services/${svc}`,{method:'PUT',body:JSON.stringify({enabled:on,settings})});row.querySelector('.sw').classList.toggle('on',on);SVC=await api('/api/services');buildNav();toast(on?`${svc} paired`:`${svc} unpaired`);}
 $('#cp-save').onclick=async()=>{try{await api('/api/password',{method:'POST',body:JSON.stringify({current_password:$('#cp-cur').value,new_password:$('#cp-new').value})});$('#cp-cur').value=$('#cp-new').value='';toast('password changed');}catch(e){toast(e.message);}};
 $('#au-add').onclick=async()=>{try{const r=await api('/api/users',{method:'POST',body:JSON.stringify({username:$('#au-name').value.trim(),password:$('#au-pass').value})});toast(r.warning||'user created');$('#au-name').value=$('#au-pass').value='';loadSettings();}catch(e){toast(e.message);}};
+
+
+/* ── export / import ── */
+let impMode='merge';
+function download(name,obj){
+  const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+}
+async function readJSON(file){
+  try{ return JSON.parse(await file.text()); }
+  catch(e){ toast("that file isn't valid JSON"); return null; }
+}
+$('#exp-btn').onclick=async()=>{
+  toast('packing your account…');
+  const d=await api('/api/export');
+  const stamp=new Date().toISOString().slice(0,10);
+  download(`nook-${ME.username}-${stamp}.json`,d);
+  const n=Object.entries(d.counts).filter(([,v])=>v).map(([k,v])=>`${v} ${k}`).join(' · ');
+  $('#exp-hint').textContent=n||'nothing to export yet';
+  toast('exported');
+};
+$$('#imp-mode .chip').forEach(b=>b.onclick=()=>{impMode=b.dataset.m;
+  $$('#imp-mode .chip').forEach(x=>x.classList.toggle('on',x===b));});
+$('#imp-file').onchange=async e=>{
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  const d=await readJSON(f); if(!d) return;
+  if(d.format!=='nook-export/1'){
+    $('#imp-out').innerHTML=`<span style="color:#c65b52">Not a Nook account export. If this is a single app's backup (workout, meals, contracts), import it from the Backups list below instead.</span>`;
+    return;
+  }
+  const n=Object.entries(d.counts||{}).filter(([,v])=>v).map(([k,v])=>`${v} ${k}`).join(' · ');
+  if(impMode==='replace' && !confirm(`REPLACE everything with this backup?\n\n${n}\n\nYour current app data is snapshotted first, so this is undoable from Backups.`))return;
+  $('#imp-out').textContent='importing…';
+  try{
+    const r=await api(`/api/import?mode=${impMode}`,{method:'POST',body:JSON.stringify(d)});
+    const got=Object.entries(r.imported).filter(([,v])=>v).map(([k,v])=>`${v} ${k}`).join(' · ')||'nothing new';
+    const skip=Object.entries(r.skipped_duplicates||{}).map(([k,v])=>`${v} ${k}`).join(' · ');
+    let msg=`<b>Imported:</b> ${esc(got)}`;
+    if(skip)msg+=`<br>Already had: ${esc(skip)}`;
+    if(r.groups_recreated?.length)msg+=`<br>Recreated org: ${esc(r.groups_recreated.join(', '))}`;
+    if(r.note)msg+=`<br><span style="color:#c65b52">${esc(r.note)}</span>`;
+    $('#imp-out').innerHTML=msg;
+    toast('imported');
+    SVC=await api('/api/services'); MYGROUPS=await api('/api/groups').catch(()=>[]);
+    buildNav(); loadSettings();
+  }catch(err){ $('#imp-out').innerHTML=`<span style="color:#c65b52">${esc(err.message)}</span>`; }
+};
+/* per-app: raw localStorage-shape JSON — the shape the old PWA/GitHub apps store */
+async function appExport(a){
+  const kv=await api(`/api/kv/${a}`);
+  if(!Object.keys(kv).length){ toast(`${a} has no data on the server yet`); return; }
+  download(`${a}-${new Date().toISOString().slice(0,10)}.json`,kv);
+  toast(`${a} exported (${Object.keys(kv).length} keys)`);
+}
+async function appImport(a,file){
+  const d=await readJSON(file); if(!d) return;
+  if(d.format==='nook-export/1'){ toast('that\'s a full account backup — use Import above'); return; }
+  const kv=Object.fromEntries(Object.entries(d).map(([k,v])=>[k,typeof v==='string'?v:JSON.stringify(v)]));
+  if(!Object.keys(kv).length){ toast('that file has no keys'); return; }
+  if(!confirm(`Replace ${a}'s data with ${Object.keys(kv).length} keys from this file?\n\nThe current state is snapshotted first, so it's undoable.`))return;
+  await api(`/api/kv/${a}/snapshot`,{method:'POST'}).catch(()=>{});
+  await api(`/api/kv/${a}?replace=1`,{method:'PUT',body:JSON.stringify(kv)});
+  toast(`${a}: imported ${Object.keys(kv).length} keys — open the app to check`);
+  loadSettings();
+}
 
 /* ══ custom date/time pickers ══ */
 function dtpInit(){$$('.dtp-btn').forEach(btn=>btn.onclick=e=>{e.stopPropagation();$$('.dtp-pop').forEach(p=>p.remove());btn.parentNode.style.position='relative';btn.parentNode.appendChild(btn.dataset.kind==='date'?dtpCal(btn):dtpTime(btn));});}

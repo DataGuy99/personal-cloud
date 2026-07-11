@@ -252,6 +252,19 @@
         <div id="healthlist"></div>
       </div>
 
+      <div class="sgroup"><h3>Export &amp; import</h3>
+        <p class="s" style="color:var(--ink-3);margin:0 0 6px">One JSON with your whole account — stream, hours, journal, sleep, metrics, pairings, and every app's data. Media stays on the server; file links travel with it.</p>
+        <div class="srow"><div class="g"><div class="t">Export everything</div><div class="s" id="exp-hint">a single file you can keep anywhere</div></div>
+          <button id="exp-btn" class="sbtn">Download</button></div>
+        <div class="srow"><div class="g"><div class="t">Import a backup</div><div class="s">Merge adds what's missing · Replace wipes and restores (snapshots first, so it's undoable)</div></div></div>
+        <div class="srow" style="border-top:none;padding-top:0">
+          <div class="pickrow" id="imp-mode"><button class="chip on" data-m="merge">Merge</button><button class="chip" data-m="replace">Replace</button></div>
+          <span style="flex:1"></span>
+          <label class="sbtn" style="cursor:pointer">Choose file<input type="file" id="imp-file" accept="application/json,.json" hidden></label>
+        </div>
+        <div id="imp-out" class="s" style="color:var(--ink-3)"></div>
+      </div>
+
       <div class="sgroup"><h3>Backups</h3>
         <p class="s" style="color:var(--dim);margin:0 0 6px">Server snapshots of each paired app's data. Nightly automatic; manual any time.</p>
         <div id="snaplist"></div>

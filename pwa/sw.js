@@ -1,4 +1,4 @@
-const CACHE = "nook-v5";
+const CACHE = "nook-v6";
 const SHELL = ["/", "/style.css", "/app.js", "/manifest.json"];
 self.addEventListener("install", e =>
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
