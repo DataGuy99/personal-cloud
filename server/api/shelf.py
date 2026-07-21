@@ -36,11 +36,8 @@ USERS = ROOT + "/users"
 POOL = ROOT + "/storage/pool"
 COVERS = os.environ.get("PC_SHELF_COVERS", ROOT + "/storage/.shelf-covers")
 
-# Shared book locations every authenticated user may read.
-POOL_BOOK_DIRS = ["books", "docs", "audiobooks"]
-
 INDEX_BUDGET = 400          # max NEW files to extract metadata for per request
-SCAN_CAP = 20000            # safety ceiling on files enumerated per call
+SCAN_CAP = 100000           # safety ceiling on files enumerated per call
 
 
 def _ensure_table():
@@ -90,12 +87,19 @@ def _iter_book_files(base_dir, vprefix):
 
 
 def _roots_for(user):
-    """(base_dir, vprefix, scope, owner_id) tuples the caller can see."""
+    """(base_dir, vprefix, scope, owner_id) tuples the caller can see.
+
+    The shared pool is scanned WHOLE (not just books/docs/audiobooks): real
+    libraries land books under whatever category the uploader used — on the live
+    box most sit in /storage/pool/unknown/Books/… — so we walk the entire pool
+    for book extensions rather than trusting the category name. Dot-dirs (our
+    .trash / .shelf-covers caches) are skipped by _iter_book_files.
+    """
     uname = user["username"]
-    roots = [(f"{USERS}/{uname}/private", f"/vault/{uname}", "vault", user["id"])]
-    for cat in POOL_BOOK_DIRS:
-        roots.append((f"{POOL}/{cat}", f"/pool/{cat}", "pool", None))
-    return roots
+    return [
+        (f"{USERS}/{uname}/private", f"/vault/{uname}", "vault", user["id"]),
+        (POOL, "/pool", "pool", None),
+    ]
 
 
 def _reindex(user):
