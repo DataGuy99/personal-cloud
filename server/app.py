@@ -33,6 +33,8 @@ from api import services as api_services
 from api import kv as api_kv
 from api import backup as api_backup
 from api import strength as api_strength
+from api import shelf as api_shelf  # book library (added 2026-07-21)
+from api import files as api_files  # download/delete + storage health (2026-07-21)
 
 logging.basicConfig(filename=os.environ.get("PC_LOG", "/var/log/personal-cloud-api.log"),
                     level=logging.INFO,
@@ -150,6 +152,52 @@ def add_user():
     return jsonify({"ok": True})
 
 
+# ── admin user management (added 2026-07-21: disable/enable + reset) ─
+# Backend audit (memory: project-backend-audit) flagged user-delete/reset as
+# missing. Disable is the practical "remove access" (reversible, keeps their
+# data); a hard purge with child-row GC is a later, more careful addition.
+@app.post("/api/users/<int:uid>/disable")
+@require_admin
+def disable_user(uid):
+    if uid == g.user["id"]:
+        return jsonify({"error": "can't disable your own account"}), 400
+    conn = db.connect()
+    conn.execute("UPDATE users SET disabled=1 WHERE id=?", (uid,))
+    conn.execute("DELETE FROM sessions WHERE user_id=?", (uid,))   # force logout
+    conn.commit()
+    conn.close()
+    logging.info(f"disable user id={uid} by={g.user['username']}")
+    return jsonify({"ok": True})
+
+
+@app.post("/api/users/<int:uid>/enable")
+@require_admin
+def enable_user(uid):
+    conn = db.connect()
+    conn.execute("UPDATE users SET disabled=0 WHERE id=?", (uid,))
+    conn.commit()
+    conn.close()
+    logging.info(f"enable user id={uid} by={g.user['username']}")
+    return jsonify({"ok": True})
+
+
+@app.post("/api/users/<int:uid>/reset")
+@require_admin
+def reset_user_pw(uid):
+    d = request.get_json(silent=True) or {}
+    new = d.get("new_password", "")
+    if len(new) < 8:
+        return jsonify({"error": "min 8 characters"}), 400
+    conn = db.connect()
+    conn.execute("UPDATE users SET pw_hash=?, must_change_pw=1 WHERE id=?",
+                 (db.hash_pw(new), uid))
+    conn.execute("DELETE FROM sessions WHERE user_id=?", (uid,))   # force re-login
+    conn.commit()
+    conn.close()
+    logging.info(f"reset password user id={uid} by={g.user['username']}")
+    return jsonify({"ok": True})
+
+
 # ── quarantine review ──────────────────────────────────────────────
 @app.get("/api/pending")
 @require_auth
@@ -240,6 +288,8 @@ app.register_blueprint(api_services.bp)
 app.register_blueprint(api_kv.bp)
 app.register_blueprint(api_backup.bp)
 app.register_blueprint(api_strength.bp)
+app.register_blueprint(api_shelf.bp)
+app.register_blueprint(api_files.bp)
 
 
 @app.get("/api/health/storage")
