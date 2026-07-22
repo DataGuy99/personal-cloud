@@ -35,6 +35,7 @@ from api import backup as api_backup
 from api import strength as api_strength
 from api import shelf as api_shelf  # book library (added 2026-07-21)
 from api import files as api_files  # download/delete + storage health (2026-07-21)
+from api import device_backup as api_device_backup  # phone backup ingest (2026-07-21)
 
 logging.basicConfig(filename=os.environ.get("PC_LOG", "/var/log/personal-cloud-api.log"),
                     level=logging.INFO,
@@ -290,6 +291,7 @@ app.register_blueprint(api_backup.bp)
 app.register_blueprint(api_strength.bp)
 app.register_blueprint(api_shelf.bp)
 app.register_blueprint(api_files.bp)
+app.register_blueprint(api_device_backup.bp)
 
 
 @app.get("/api/health/storage")
