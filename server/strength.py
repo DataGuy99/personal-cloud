@@ -38,6 +38,28 @@ with open(os.path.join(_HERE, "data", "exercises.json")) as f:
 MUSCLES = _LIB["MUSCLES"]
 EXERCISES = {e["name"]: e for e in _LIB["EXERCISES"]}
 
+# Head-level muscle distribution (added 2026-07-25). Generated from reps'
+# src/muscleHeads.js by pre-computing headLoad() for every exercise, so this file
+# holds a LOOKUP rather than a second copy of that module's EMPHASIS/DEFAULT_SPLIT
+# logic. Regenerate whenever reps changes its exercise list or head splits.
+#
+#   HEAD_LOAD[exercise] -> {"muscle/head": involvement_pct}
+#   PRIMARY_MUSCLE[exercise] -> the single highest-involvement primary muscle,
+#                               which is what a UI means by an exercise's "group".
+#
+# Optional: absent or unreadable, head-level reporting degrades to empty and
+# everything else keeps working.
+try:
+    with open(os.path.join(_HERE, "data", "muscle_heads.json")) as f:
+        _HEADS_LIB = json.load(f)
+except Exception:
+    _HEADS_LIB = {}
+
+HEADS = _HEADS_LIB.get("HEADS", {})
+HEAD_LABELS = _HEADS_LIB.get("HEAD_LABELS", {})
+HEAD_LOAD = _HEADS_LIB.get("head_load", {})
+PRIMARY_MUSCLE = _HEADS_LIB.get("primary_muscle", {})
+
 # verbatim from workout-gen App.jsx
 PATTERNS = [
     {"id": "hpress", "label": "H. Press", "full": "Horizontal Press", "ref": "Barbell Bench Press"},
@@ -392,6 +414,7 @@ def muscle_load(anchor_log, acc_log, bodyweight, days=28, impl_ov=None):
     from datetime import date, timedelta
     cutoff = date.today() - timedelta(days=days)
     per_workout, muscles = {}, {}
+    heads = {}   # "muscle/head" -> hard-set credit over the window
 
     for log in (anchor_log or {}, acc_log or {}):
         for name, sessions in log.items():
@@ -430,6 +453,19 @@ def muscle_load(anchor_log, acc_log, bodyweight, days=28, impl_ov=None):
                             w["hard_sets"][m] = w["hard_sets"].get(m, 0) + 0.5
                             muscles.setdefault(m, {"hard_sets": 0.0, "volume_load": 0.0})
                             muscles[m]["hard_sets"] += 0.5
+                        # Head-level split of the SAME hard set. A muscle's head
+                        # shares sum to its own involvement, so summing the heads of
+                        # one muscle reproduces that muscle's whole-muscle credit —
+                        # the two views stay consistent by construction.
+                        for key, pct_of in (HEAD_LOAD.get(name) or {}).items():
+                            muscle = key.split("/", 1)[0]
+                            base = 1.0 if muscle in prim else 0.5 if muscle in sec else 0.0
+                            if not base:
+                                continue
+                            whole = pct.get(muscle) or 0
+                            if whole <= 0:
+                                continue
+                            heads[key] = heads.get(key, 0.0) + base * (pct_of / whole)
                     vol = reps * load
                     tonnage += vol
                     for m, p in pct.items():
@@ -460,11 +496,35 @@ def muscle_load(anchor_log, acc_log, bodyweight, days=28, impl_ov=None):
             "status": status,
         })
     summary.sort(key=lambda x: -x["volume_load"])
+
+    # Head-level breakdown: which HEAD of each muscle the work actually hit.
+    # Sums per muscle back to that muscle's own hard_sets, so it refines the
+    # summary above rather than telling a different story.
+    head_rows = []
+    for key, credit in heads.items():
+        muscle, head = key.split("/", 1)
+        head_rows.append({
+            "muscle": muscle,
+            "head": head,
+            "label": (HEAD_LABELS.get(muscle) or {}).get(head, head),
+            # 2dp, not 1: head figures are small fractions of a muscle's total, and
+            # rounding them to 1dp made a muscle's heads visibly fail to sum back to
+            # its whole-muscle number (0.2+0.1+0.1 vs 0.5).
+            "hard_sets_per_week": round(credit / weeks, 2),
+        })
+    head_rows.sort(key=lambda h: (h["muscle"], -h["hard_sets_per_week"]))
+
     return {
         "window_days": days,
         "muscles": summary,
+        "heads": head_rows,
+        # Static lookup, included so a client can label an exercise's muscle group
+        # without shipping its own copy of the exercise table.
+        "primary_muscle": PRIMARY_MUSCLE,
         "workouts": sorted(per_workout.values(), key=lambda w: w["date"], reverse=True),
         "note": ("hard_sets uses primary=1.0 / secondary=0.5 -- the scheme MEV/MAV/MRV "
                  "are defined in. volume_load splits reps x load by each exercise's own "
-                 "muscle percentages, so it shows where the tonnage actually landed."),
+                 "muscle percentages, so it shows where the tonnage actually landed. "
+                 "heads splits that same hard-set credit across each muscle's heads, so "
+                 "summing a muscle's heads reproduces its whole-muscle figure."),
     }
