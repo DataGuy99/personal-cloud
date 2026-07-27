@@ -263,3 +263,54 @@ CREATE TABLE IF NOT EXISTS recipe_steps (
     PRIMARY KEY (user_id, recipe_id, idx)
 );
 CREATE INDEX IF NOT EXISTS idx_recipe_steps_user ON recipe_steps(user_id, recipe_id);
+
+-- Cross-service search index (added 2026-07-25).
+--
+-- One row per addressable THING, so a hit can deep-link to the exact page:
+-- service + tab + item_id is the address, `kind` disambiguates rows that share a
+-- query ("183" is a bodyweight in Workout, grams of an ingredient in Meal, and a
+-- street number in Contractor), and `subtitle` carries the context that lets a
+-- person tell those apart at a glance.
+--
+-- NOT an FTS table itself: FTS5 external-content tables can't be queried by
+-- ordinary columns, and the UI needs to filter/sort by service and recency. This
+-- holds the data; search_fts below indexes `body`.
+--
+-- `body` is what actually gets matched, and the indexer must EMIT NUMBERS INTO IT.
+-- A bodyweight lives in body_metrics.weight as a REAL — full-text search will
+-- never match "183" against a numeric column, so the indexer writes "183 lb body
+-- weight" into body. Same for grams inside a recipe blob. Get this wrong and
+-- numeric queries silently return nothing.
+CREATE TABLE IF NOT EXISTS search_index (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    service    TEXT NOT NULL,          -- home | workout | meal | hours | contractor | shelf | archive | photos
+    tab        TEXT,                   -- which screen inside that service
+    item_id    TEXT,                   -- the service's own id for the thing
+    kind       TEXT,                   -- bodyweight | ingredient | project | note | movie | book | employee | …
+    title      TEXT NOT NULL,          -- the result headline
+    subtitle   TEXT,                   -- disambiguating context ("Body log · Jul 20")
+    at         INTEGER,                -- unix seconds, for recency ranking
+    body       TEXT NOT NULL,          -- the searchable text (numbers included!)
+    UNIQUE(user_id, service, item_id, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_search_user ON search_index(user_id, service);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
+    body,
+    content='search_index',
+    content_rowid='id',
+    tokenize='unicode61'
+);
+
+-- Keep the FTS mirror in step with the table it indexes.
+CREATE TRIGGER IF NOT EXISTS search_ai AFTER INSERT ON search_index BEGIN
+    INSERT INTO search_fts(rowid, body) VALUES (new.id, new.body);
+END;
+CREATE TRIGGER IF NOT EXISTS search_ad AFTER DELETE ON search_index BEGIN
+    INSERT INTO search_fts(search_fts, rowid, body) VALUES ('delete', old.id, old.body);
+END;
+CREATE TRIGGER IF NOT EXISTS search_au AFTER UPDATE ON search_index BEGIN
+    INSERT INTO search_fts(search_fts, rowid, body) VALUES ('delete', old.id, old.body);
+    INSERT INTO search_fts(rowid, body) VALUES (new.id, new.body);
+END;

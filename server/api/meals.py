@@ -93,11 +93,12 @@ def plans():
 @require_auth
 def get_recipe_steps(recipe_id):
     """Steps for one recipe, in order. Empty list when none are set."""
-    with db.get() as conn:
-        rows = conn.execute(
-            "SELECT idx, text FROM recipe_steps WHERE user_id=? AND recipe_id=? ORDER BY idx",
-            (g.user_id, recipe_id),
-        ).fetchall()
+    conn = db.connect()
+    rows = conn.execute(
+        "SELECT idx, text FROM recipe_steps WHERE user_id=? AND recipe_id=? ORDER BY idx",
+        (g.user["id"], recipe_id),
+    ).fetchall()
+    conn.close()
     return jsonify({"recipe_id": recipe_id, "steps": [r["text"] for r in rows]})
 
 
@@ -109,11 +110,12 @@ def all_recipe_steps():
     One call, because the Meal screen renders the whole recipe list at once and
     a per-recipe round trip would mean dozens of requests to draw one page.
     """
-    with db.get() as conn:
-        rows = conn.execute(
-            "SELECT recipe_id, idx, text FROM recipe_steps WHERE user_id=? ORDER BY recipe_id, idx",
-            (g.user_id,),
-        ).fetchall()
+    conn = db.connect()
+    rows = conn.execute(
+        "SELECT recipe_id, idx, text FROM recipe_steps WHERE user_id=? ORDER BY recipe_id, idx",
+        (g.user["id"],),
+    ).fetchall()
+    conn.close()
     out = {}
     for r in rows:
         out.setdefault(r["recipe_id"], []).append(r["text"])
@@ -146,12 +148,14 @@ def set_recipe_steps(recipe_id):
             cleaned.append(s[:2000])
 
     now = int(time.time())
-    with db.get() as conn:
-        conn.execute("DELETE FROM recipe_steps WHERE user_id=? AND recipe_id=?",
-                     (g.user_id, recipe_id))
-        conn.executemany(
-            "INSERT INTO recipe_steps (user_id, recipe_id, idx, text, updated_at) "
-            "VALUES (?,?,?,?,?)",
-            [(g.user_id, recipe_id, i, t, now) for i, t in enumerate(cleaned)],
-        )
+    conn = db.connect()
+    conn.execute("DELETE FROM recipe_steps WHERE user_id=? AND recipe_id=?",
+                 (g.user["id"], recipe_id))
+    conn.executemany(
+        "INSERT INTO recipe_steps (user_id, recipe_id, idx, text, updated_at) "
+        "VALUES (?,?,?,?,?)",
+        [(g.user["id"], recipe_id, i, t, now) for i, t in enumerate(cleaned)],
+    )
+    conn.commit()
+    conn.close()
     return jsonify({"ok": True, "recipe_id": recipe_id, "count": len(cleaned)})

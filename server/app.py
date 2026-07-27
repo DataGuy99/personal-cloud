@@ -28,6 +28,7 @@ from api import sleep as api_sleep
 from api import meals as api_meals
 from api import workouts as api_workouts
 from api import journal as api_journal
+from api import search as api_search
 from api import dump as api_dump
 from api import services as api_services
 from api import kv as api_kv
@@ -284,6 +285,7 @@ app.register_blueprint(api_sleep.bp)
 app.register_blueprint(api_meals.bp)
 app.register_blueprint(api_workouts.bp)
 app.register_blueprint(api_journal.bp)
+app.register_blueprint(api_search.bp)
 app.register_blueprint(api_dump.bp)
 app.register_blueprint(api_services.bp)
 app.register_blueprint(api_kv.bp)
