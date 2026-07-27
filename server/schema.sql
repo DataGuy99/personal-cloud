@@ -242,3 +242,24 @@ CREATE TABLE IF NOT EXISTS group_kv (
     updated_by INTEGER REFERENCES users(id),
     PRIMARY KEY (group_id, app, key)
 );
+
+-- Cooking steps for a meal-prep recipe (added 2026-07-25).
+--
+-- meal-prep's own recipe model has no steps field and no nutrition; its recipes
+-- live in the opaque `prep_recipes` KV blob. Rather than modify that app (and
+-- risk its data), steps are stored here as a Nook-side overlay keyed by the
+-- recipe id meal-prep already assigns. meal-prep keeps working untouched; Nook
+-- merges these in when it builds the Meal payload.
+--
+-- recipe_id is meal-prep's own string id, not a foreign key -- the recipes it
+-- refers to live in app_kv, so referential integrity can't be enforced here.
+-- Rows for a deleted recipe are harmless (they simply never match).
+CREATE TABLE IF NOT EXISTS recipe_steps (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    recipe_id  TEXT    NOT NULL,
+    idx        INTEGER NOT NULL,          -- 0-based position in the list
+    text       TEXT    NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, recipe_id, idx)
+);
+CREATE INDEX IF NOT EXISTS idx_recipe_steps_user ON recipe_steps(user_id, recipe_id);

@@ -81,3 +81,77 @@ def plans():
         (g.user["id"], g.user["id"])).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+# ── Recipe steps (added 2026-07-25) ──────────────────────────────────────────
+# meal-prep's recipe model has no steps field, and its recipes live in the opaque
+# `prep_recipes` KV blob. These endpoints store steps alongside, keyed by the
+# recipe id meal-prep already assigns, so that app stays untouched while Nook can
+# still show (and edit) real cooking instructions.
+
+@bp.get("/recipes/<recipe_id>/steps")
+@require_auth
+def get_recipe_steps(recipe_id):
+    """Steps for one recipe, in order. Empty list when none are set."""
+    with db.get() as conn:
+        rows = conn.execute(
+            "SELECT idx, text FROM recipe_steps WHERE user_id=? AND recipe_id=? ORDER BY idx",
+            (g.user_id, recipe_id),
+        ).fetchall()
+    return jsonify({"recipe_id": recipe_id, "steps": [r["text"] for r in rows]})
+
+
+@bp.get("/steps")
+@require_auth
+def all_recipe_steps():
+    """Every recipe's steps for this user, as {recipe_id: [step, ...]}.
+
+    One call, because the Meal screen renders the whole recipe list at once and
+    a per-recipe round trip would mean dozens of requests to draw one page.
+    """
+    with db.get() as conn:
+        rows = conn.execute(
+            "SELECT recipe_id, idx, text FROM recipe_steps WHERE user_id=? ORDER BY recipe_id, idx",
+            (g.user_id,),
+        ).fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(r["recipe_id"], []).append(r["text"])
+    return jsonify({"steps": out})
+
+
+@bp.put("/recipes/<recipe_id>/steps")
+@require_auth
+def set_recipe_steps(recipe_id):
+    """Replace a recipe's steps wholesale with the posted list.
+
+    Replace rather than patch: the client edits the list as a unit (reorder,
+    insert, delete), so diffing individual positions would be more code and more
+    ways to end up out of order. Blank entries are dropped, and the remainder are
+    renumbered from 0 so `idx` is always dense.
+    """
+    body = request.get_json(silent=True) or {}
+    steps = body.get("steps")
+    if not isinstance(steps, list):
+        return jsonify({"error": "steps must be a list of strings"}), 400
+    if len(steps) > 200:
+        return jsonify({"error": "too many steps (max 200)"}), 400
+
+    cleaned = []
+    for s in steps:
+        if not isinstance(s, str):
+            return jsonify({"error": "steps must be a list of strings"}), 400
+        s = s.strip()
+        if s:
+            cleaned.append(s[:2000])
+
+    now = int(time.time())
+    with db.get() as conn:
+        conn.execute("DELETE FROM recipe_steps WHERE user_id=? AND recipe_id=?",
+                     (g.user_id, recipe_id))
+        conn.executemany(
+            "INSERT INTO recipe_steps (user_id, recipe_id, idx, text, updated_at) "
+            "VALUES (?,?,?,?,?)",
+            [(g.user_id, recipe_id, i, t, now) for i, t in enumerate(cleaned)],
+        )
+    return jsonify({"ok": True, "recipe_id": recipe_id, "count": len(cleaned)})
