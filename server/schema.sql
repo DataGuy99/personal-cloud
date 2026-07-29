@@ -140,19 +140,32 @@ CREATE TABLE IF NOT EXISTS sleep_sessions (
     user_id     INTEGER NOT NULL REFERENCES users(id),
     slept_at    INTEGER NOT NULL,
     woke_at     INTEGER,
-    quality     INTEGER,                   -- 1-5 self-report
+    quality     INTEGER,                   -- 1-5 self-report; NULL when machine-sourced
     note        TEXT
 );
-
--- notes / journal (PLANNED)
-CREATE TABLE IF NOT EXISTS journal_entries (
+-- Sleep stages (2026-07-28). Mirrors Health Connect's SleepSessionRecord, which carries a
+-- list of typed stages rather than a single quality score. Stored raw rather than reduced
+-- to a score: deriving a number and discarding the detail throws away exactly what a
+-- Recovery figure needs (deep and REM proportion, fragmentation, time awake in bed).
+-- `stage` holds HC's own constant so nothing is lost in translation. Values read
+-- straight out of connect-client 1.1.0-alpha07 (javap on SleepSessionRecord), not from
+-- memory — 2026-07-28:
+--   0 UNKNOWN  1 AWAKE  2 SLEEPING  3 OUT_OF_BED  4 LIGHT  5 DEEP  6 REM  7 AWAKE_IN_BED
+-- 0 is real and does occur: a tracker that recorded a session without staging it reports
+-- UNKNOWN, so any Recovery maths must treat it as "slept, unclassified" rather than
+-- assuming a missing stage means awake.
+CREATE TABLE IF NOT EXISTS sleep_stages (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     INTEGER NOT NULL REFERENCES users(id),
-    created_at  INTEGER NOT NULL,
-    updated_at  INTEGER,
-    title       TEXT,
-    body        TEXT
+    session_id  INTEGER NOT NULL REFERENCES sleep_sessions(id) ON DELETE CASCADE,
+    stage       INTEGER NOT NULL,
+    started_at  INTEGER NOT NULL,
+    ended_at    INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_sleep_stage_session ON sleep_stages(session_id);
+-- NOTE: the unique index on (user_id, hc_uid) that makes dedup work is created in
+-- db.py's migration list, NOT here. On an existing database this file is executed
+-- BEFORE the ALTER that adds hc_uid, and executescript() aborts the whole script on a
+-- failed statement — putting it here would break init_db() for every existing install.
 
 -- ── GROUPS: the sharing primitive ─────────────────────────────────────────
 -- A group is any shared space: "Family" (meal prep), a work org (contract
@@ -203,7 +216,7 @@ CREATE INDEX IF NOT EXISTS idx_dump_group    ON dump_items(group_id, created_at)
 -- config (e.g. work: {"hourly_rate": 30}). UI renders only paired services.
 CREATE TABLE IF NOT EXISTS user_services (
     user_id    INTEGER NOT NULL REFERENCES users(id),
-    service    TEXT NOT NULL,               -- 'work','fitness','meals','sleep','journal'
+    service    TEXT NOT NULL,               -- 'work','fitness','meals','sleep'
     enabled    INTEGER NOT NULL DEFAULT 1,
     settings   TEXT NOT NULL DEFAULT '{}',  -- JSON
     updated_at INTEGER NOT NULL,

@@ -5,7 +5,8 @@ into an estimated daily energy expenditure + earnings for today.
 Modules not yet logged simply contribute nothing (graceful degradation).
 """
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from flask import Blueprint, jsonify, g
 import db
 from api.util import require_auth
@@ -18,17 +19,40 @@ ACTIVITY_KCAL_HR = {"desk": 30, "standing": 60, "driving": 40,
                     "construction": 250, "manual": 200}
 
 
-def _day_bounds(ts=None):
-    dt = datetime.fromtimestamp(ts or time.time())
-    start = int(datetime(dt.year, dt.month, dt.day).timestamp())
-    return start, start + 86400
+def _day_bounds(tz_name=None, ts=None):
+    """Midnight-to-midnight in the USER's timezone.
+
+    Fixed 2026-07-28. This previously used datetime.fromtimestamp() with no tzinfo, i.e.
+    the SERVER's local time, so "today" was wherever CloudDome thinks it is. Two real
+    consequences: a meal eaten late and logged after midnight landed on the wrong day, and
+    the energy-balance window covered the wrong 24 hours. The resolved rule is midnight in
+    the user's own timezone.
+
+    Deliberately NOT `start + 86400`: across a DST transition a local day is 23 or 25
+    hours, and adding a fixed 86400 would clip or overlap an hour of the user's data.
+    Adding timedelta(days=1) to an aware datetime does wall-clock arithmetic, so the end
+    really is the next local midnight.
+
+    An unset or unrecognised tz falls back to server local — same behaviour as before, so
+    a bad value degrades rather than throwing.
+    """
+    tz = None
+    if tz_name:
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = None
+    dt = datetime.fromtimestamp(ts or time.time(), tz)
+    start_local = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + timedelta(days=1)
+    return int(start_local.timestamp()), int(end_local.timestamp())
 
 
 @bp.get("/today")
 @require_auth
 def today():
     uid = g.user["id"]
-    start, end = _day_bounds()
+    start, end = _day_bounds(g.user["tz"] if "tz" in g.user.keys() else None)
     conn = db.connect()
 
     m = conn.execute("SELECT * FROM body_metrics WHERE user_id=? "

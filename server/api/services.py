@@ -5,7 +5,7 @@ import db
 from api.util import require_auth
 
 bp = Blueprint("services", __name__, url_prefix="/api/services")
-KNOWN = ["work", "fitness", "meals", "sleep", "journal"]
+KNOWN = ["work", "fitness", "meals", "sleep"]
 
 
 @bp.get("")

@@ -19,6 +19,7 @@ from functools import wraps
 from flask import Flask, request, jsonify, send_from_directory, g
 
 sys.path.insert(0, os.path.dirname(__file__))
+from zoneinfo import ZoneInfo
 import db
 from api import metrics as api_metrics
 from api import workhours as api_work
@@ -27,7 +28,6 @@ from api import groups as api_groups
 from api import sleep as api_sleep
 from api import meals as api_meals
 from api import workouts as api_workouts
-from api import journal as api_journal
 from api import search as api_search
 from api import dump as api_dump
 from api import services as api_services
@@ -102,9 +102,47 @@ def logout():
 @app.get("/api/me")
 @require_auth
 def me():
+    # tz/units added 2026-07-28. `tz` is an IANA name the CLIENT detects and reports —
+    # the server must never guess it from its own clock, which was the original bug
+    # (insights computed "today" in CloudDome's timezone, not the user's).
+    keys = g.user.keys()
     return jsonify({"username": g.user["username"], "is_admin": bool(g.user["is_admin"]),
                     "file_token": g.user["file_token"],
-                    "must_change_pw": bool(g.user["must_change_pw"])})
+                    "must_change_pw": bool(g.user["must_change_pw"]),
+                    "tz": (g.user["tz"] if "tz" in keys else "") or "",
+                    "units": (g.user["units"] if "units" in keys else "") or "metric"})
+
+
+@app.put("/api/prefs")
+@require_auth
+def set_prefs():
+    """Client-reported preferences: timezone and unit system.
+
+    The app calls this on login and whenever the device timezone changes (travel, DST
+    is handled server-side by zoneinfo so only the ZONE matters here). An unknown zone
+    is rejected rather than stored — a bad zone would silently shift every day boundary.
+    """
+    d = request.get_json(silent=True) or {}
+    fields, vals = [], []
+    if "tz" in d:
+        tz = (d.get("tz") or "").strip()
+        if tz:
+            try:
+                ZoneInfo(tz)
+            except Exception:
+                return jsonify({"error": f"unknown timezone {tz!r}"}), 400
+        fields.append("tz=?"); vals.append(tz)
+    if "units" in d:
+        u = (d.get("units") or "").strip().lower()
+        if u not in ("metric", "imperial"):
+            return jsonify({"error": "units must be 'metric' or 'imperial'"}), 400
+        fields.append("units=?"); vals.append(u)
+    if not fields:
+        return jsonify({"error": "nothing to update"}), 400
+    conn = db.connect()
+    conn.execute(f"UPDATE users SET {','.join(fields)} WHERE id=?", (*vals, g.user["id"]))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True})
 
 
 @app.post("/api/password")
@@ -284,7 +322,6 @@ app.register_blueprint(api_groups.bp)
 app.register_blueprint(api_sleep.bp)
 app.register_blueprint(api_meals.bp)
 app.register_blueprint(api_workouts.bp)
-app.register_blueprint(api_journal.bp)
 app.register_blueprint(api_search.bp)
 app.register_blueprint(api_dump.bp)
 app.register_blueprint(api_services.bp)

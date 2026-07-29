@@ -23,6 +23,32 @@ def init_db():
         "ALTER TABLE users ADD COLUMN must_change_pw INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE dump_items ADD COLUMN to_user_id INTEGER REFERENCES users(id)",
         "ALTER TABLE dump_items ADD COLUMN meta TEXT NOT NULL DEFAULT '{}'",
+        # 2026-07-28 — units + timezone. Both were audit findings:
+        #  · `tz`: /api/insights/today computed "today" from the SERVER's local time, so a
+        #    late-evening meal could land on the wrong day and the energy-balance window
+        #    covered the wrong 24 hours. Midnight must be midnight where the USER is.
+        #    IANA name ('America/Phoenix'); empty means fall back to server local.
+        #  · `units`: 'metric' | 'imperial'. Storage is always normalised to base units
+        #    (see units.py) — this only controls what the user is SHOWN and how bare
+        #    numbers they type are interpreted.
+        "ALTER TABLE users ADD COLUMN tz TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN units TEXT NOT NULL DEFAULT 'metric'",
+        # 2026-07-28 — Health Connect ingest. Sleep is HC-centric (decided by Samuel:
+        # the phone is the source until he builds a sleep device, which will then feed
+        # the same shape), so sleep_sessions mirrors HC's SleepSessionRecord.
+        #  · `source`: 'health_connect' | 'manual' | a device label.
+        #  · `hc_uid`: HC's own record id. REQUIRED for dedup — Health Connect re-delivers
+        #    records on every sync, and without a stable id you accumulate duplicate
+        #    nights that silently double every sleep statistic.
+        #  · `tz_offset_min`: what the clock said where the user actually slept.
+        "ALTER TABLE sleep_sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+        "ALTER TABLE sleep_sessions ADD COLUMN hc_uid TEXT",
+        "ALTER TABLE sleep_sessions ADD COLUMN tz_offset_min INTEGER",
+        # Must run AFTER the hc_uid ALTER above, which is why it lives here and not in
+        # schema.sql — that file is executed first, and executescript() aborts the entire
+        # script on a single failed statement.
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_sleep_hcuid "
+        "ON sleep_sessions(user_id, hc_uid) WHERE hc_uid IS NOT NULL",
     ]:
         try:
             conn.execute(mig)

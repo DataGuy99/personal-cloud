@@ -1,7 +1,7 @@
 """Whole-account export / import.
 
 One JSON carries everything the platform knows about you: stream, hours,
-journal, sleep, metrics, workouts, meals, service pairings, and every ported
+sleep, metrics, workouts, meals, service pairings, and every ported
 app's KV state (in localStorage shape, so it round-trips through the bridge).
 
 Files are NOT embedded — media lives in copyparty on disk and would balloon
@@ -24,7 +24,6 @@ FORMAT = "nook-export/1"
 DEDUPE = {
     "dump_items":      ("created_at", "kind", "content", "file_path"),
     "work_sessions":   ("started_at",),
-    "journal_entries": ("created_at", "title"),
     "sleep_sessions":  ("slept_at",),
     "body_metrics":    ("logged_at",),
     "workouts":        ("performed_at", "kind"),
@@ -35,7 +34,6 @@ DEDUPE = {
 SECTIONS = [
     ("stream",     "dump_items"),
     ("hours",      "work_sessions"),
-    ("journal",    "journal_entries"),
     ("sleep",      "sleep_sessions"),
     ("metrics",    "body_metrics"),
     ("workouts",   "workouts"),
